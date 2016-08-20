@@ -35,22 +35,22 @@ class LUTHM(object):
         text_mask = tensor.imatrix('text_mask')
 
         # sample negtive hashtags
-        def neg_sample(h, dis_table, sample_size):
+        def neg_sample(h):
             neg_hashtags = []
-            while len(neg_hashtags) < sample_size:
-                rvs = rvg.uniform(size = (10,), low = 0.0, high = dataset.hashtag_dis_table[-1], dtype=theano.config.floatX)
-                for rv in rvs:
-                    index = get_index(dis_table, rv)
+            while len(neg_hashtags) < config.hashtag_sample_size:
+                rvs = rvg.uniform(size = (config.hashtag_sample_size,), low = 0.0, high = dataset.hashtag_dis_table[-1], dtype=theano.config.floatX)
+                for i in range(10):
+                    rv = rvs[i]
+                    index = get_index(dataset.hashtag_dis_table, rv)
                     if index != h:
                         neg_hashtags.append(index)
-                    if len(neg_hashtags) == sample_size:
+                    if len(neg_hashtags) == config.hashtag_sample_size:
                         break
             return numpy.array(neg_hashtags)
 
         neg_hashtags = theano.scan(fn = neg_sample,
                                   sequences=[hashtag],
                                   outputs_info= None,
-                                  non_sequences=[dataset.hashtag_dis_table, config.hashtag_sample_size],
                                   n_steps= hashtag.shape[0])
         # Transpose text
         text = text.dimshuffle(1,0)

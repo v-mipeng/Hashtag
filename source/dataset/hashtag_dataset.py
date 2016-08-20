@@ -438,8 +438,9 @@ class UTHD(object):
             date_begin = self.dates.min()
             date_end = date_begin+datetime.timedelta(days= date_end)
         elif date_begin == self.LAST_DAY:
+            delta = datetime.timedelta(days=date_end)
             date_end = self.dates.max()
-            date_end = date_begin + datetime.timedelta(days=date_end)
+            date_begin = date_end - delta
         elif date_begin is None and date_end is None:
             dataset = (self.users, self.texts, self.hashtags)
             return self._construct_dataset(dataset)
@@ -497,35 +498,6 @@ class UTHD(object):
             return date
         else:
             return datetime.datetime.strptime(str_date, "%a %b %d %H:%M:%S +0000 %Y").date()
-
-    def _sort_by_date(self, raw_dataset):
-        '''
-        Deprecated: cannot sort so large dataset
-        Sort dataset by date
-        :param dataset: [[field1_line1,field2_line2..],[field1_line2,...]...] format dataset
-        :return: dataset sort by
-        '''
-        assert raw_dataset is not None
-        fields = zip(*raw_dataset)
-        dates = []
-        for str_date in fields[self.config.date_index]:
-            dates.append(self._parse_date(str_date))
-        fields[3] = dates
-        dataset_copy = zip(*fields)
-        del fields
-        def _get_key(item):
-            return item[self.config.date_index]
-        dataset_copy.sort(key=_get_key, reverse=True)
-        return dataset_copy
-
-    def _get_date_first_index(self, raw_dateset):
-        # Deprecated
-        # get the first index of unique dates
-        dates = zip(*raw_dateset)[self.config.date_index]
-        unique_dates = set(dates)
-        self.date_index = {}
-        for date in unique_dates:
-            self.date_index[date] = dates.index(date)
 
     def _turn_str2index(self, raw_dataset):
         '''
@@ -642,7 +614,6 @@ class UTHD(object):
         count = count**(3.0/4)
         count = count/count.sum()
         self.hashtag_dis_table = count.cumsum().astype(theano.config.floatX)
-
 
 
 if __name__ == "__main__":

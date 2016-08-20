@@ -15,6 +15,9 @@ class BasicConfig:
     # Running mode: debug or run
     mode = "debug"
 
+    #region raw dataset control parameters
+    project_dir = "E:/projects/Hashtag/"
+
     # GPU: "int32"; CPU: "int64"
     int_type = "int32"
 
@@ -57,19 +60,18 @@ class UGC(BasicConfig):
 class UTHC(BasicConfig):
     Model = LUTHM
 
-    #region raw dataset control parameters
-    project_dir = "E:/projects/Hashtag/"
+    model_path = os.path.join(BasicConfig.project_dir, "output/model/UTHC_lstm.pkl")
 
     # If is directory, read all the files with extension ".txt"
-    train_path = os.path.join(project_dir, "data/unit test/posts.txt")
+    train_path = os.path.join(BasicConfig.project_dir, "data/unit test/posts.txt")
 
-    test_path = os.path.join(project_dir, "data/test/")
+    test_path = os.path.join(BasicConfig.project_dir, "data/test/")
 
-    test_result_path = os.path.join(project_dir, "output/test/")
+    test_result_path = os.path.join(BasicConfig.project_dir, "output/test/")
 
-    predict_path = os.path.join(project_dir, "data/predict/")
+    predict_path = os.path.join(BasicConfig.project_dir, "data/predict/")
 
-    predict_result_path = os.path.join(project_dir, "data/predict/")
+    predict_result_path = os.path.join(BasicConfig.project_dir, "data/predict/")
 
     # delimiter of line storing a post information
     delimiter = "\t"
@@ -84,7 +86,7 @@ class UTHC(BasicConfig):
 
     date_index = 3
     # file path storing id to index dictionaries
-    data_dir = os.path.join(project_dir, "output/table/")
+    data_dir = os.path.join(BasicConfig.project_dir, "output/table/")
 
     user2index_path = os.path.join(data_dir, "user2index.txt")
 
@@ -95,12 +97,11 @@ class UTHC(BasicConfig):
     #endregion
 
     # region Model control parameters
-
     user_embed_dim = 100
 
     word_embed_dim = 100
 
-    hashtag_sample_num = 10
+    hashtag_sample_size = 10
 
     lstm_dim = 256
 

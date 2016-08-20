@@ -13,10 +13,10 @@ from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.algorithms import GradientDescent
 
-from dataset.hashtag_dataset import  MTL, MTLD, UTHD
+from dataset.hashtag_dataset import  UTHD
 from paramsaveload import SaveLoadParams
 
-from config.hashtag_config import MTLC, MTLDC, WLSTMC, BDLSTMC, BDLSTMC2, UTHC
+from config.hashtag_config import UTHC
 
 from abc import abstractmethod, ABCMeta
 
@@ -446,7 +446,7 @@ class BDLSTME2(MTLE):
 #endregion
 
 
-class UTHE(BasicEntrance):
+class UTHE(object):
     '''
 
     '''
@@ -478,7 +478,7 @@ class UTHE(BasicEntrance):
             self.model_path = model_path
 
         # Build train stream
-        train_stream = self.dataset.get_shuffled_stream(train_path, date_begin= -3, date_end = self.dataset.LAST_DAY)
+        train_stream = self.dataset.get_shuffled_stream(train_path, date_begin= self.dataset.LAST_DAY, date_end = 3)
 
         # Build model
 
@@ -527,3 +527,8 @@ class UTHE(BasicEntrance):
     def predict(self, predict_path = None, predict_result_path = None, model_path = None):
         raise NotImplementedError('subclasses must override predict()!')
 
+if __name__ == "__main__":
+    # Test UTHE
+    entrance = UTHE()
+    entrance.train()
+    pass
