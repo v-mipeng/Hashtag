@@ -1,0 +1,1 @@
+basedir = "./input/conll"
