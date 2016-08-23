@@ -1,7 +1,7 @@
 ﻿import theano
 from theano import tensor
 from theano.tensor.raw_random import random_integers
-from theano.tensor.shared_randomstreams import RandomStreams
+
 import numpy
 import codecs
 
@@ -28,30 +28,15 @@ class LUTHM(object):
         :param config:
         :param dataset: User-text-hashtag dataset
         '''
-        rvg = RandomStreams(seed = 223)
+
         user = tensor.ivector('user')
         hashtag = tensor.ivector('hashtag')
+        neg_hashtag = tensor.imatrix('hashtag_negtive_sample')
         text = tensor.imatrix('text')
         text_mask = tensor.imatrix('text_mask')
 
         # sample negtive hashtags
-        def neg_sample(h):
-            neg_hashtags = []
-            while len(neg_hashtags) < config.hashtag_sample_size:
-                rvs = rvg.uniform(size = (config.hashtag_sample_size,), low = 0.0, high = dataset.hashtag_dis_table[-1], dtype=theano.config.floatX)
-                for i in range(10):
-                    rv = rvs[i]
-                    index = get_index(dataset.hashtag_dis_table, rv)
-                    if index != h:
-                        neg_hashtags.append(index)
-                    if len(neg_hashtags) == config.hashtag_sample_size:
-                        break
-            return numpy.array(neg_hashtags)
 
-        neg_hashtags = theano.scan(fn = neg_sample,
-                                  sequences=[hashtag],
-                                  outputs_info= None,
-                                  n_steps= hashtag.shape[0])
         # Transpose text
         text = text.dimshuffle(1,0)
         text_mask = text_mask.dimshuffle(1, 0)
@@ -66,14 +51,14 @@ class LUTHM(object):
         user_embed.initialize()
 
         hashtag_embed = LookupTable(len(dataset.hashtag2index), config.lstm_dim+config.user_embed_dim, name = 'hashtag_embed')
-        hashtag_embed.weights_init = IsotropicGaussian(std = numpy.sqrt(2)/numpy.sqrt(len(dataset.hashtag2index)+config.lstm_dim+config.user_embed_dim))
+        hashtag_embed.weights_init = IsotropicGaussian(std = 1/numpy.sqrt(config.lstm_dim+config.user_embed_dim))
         hashtag_embed.initialize()
 
         # Turn word user and hashtag into vector representation
         text_vec = word_embed.apply(text)
         user_vec = user_embed.apply(user)
         true_hashtag_vec = hashtag_embed.apply(hashtag)
-        neg_hashtag_vec = hashtag_embed.apply(neg_hashtags)
+        neg_hashtag_vec = hashtag_embed.apply(neg_hashtag)
 
         # Build and apply multiple-time LSTM
         mlstm_ins = Linear(input_dim=config.word_embed_dim, output_dim=4 * config.lstm_dim, name='mlstm_in')
@@ -81,67 +66,47 @@ class LUTHM(object):
         mlstm_ins.biases_init = Constant(0)
         mlstm_ins.initialize()
         mlstm = MLSTM(config.lstm_time, config.lstm_dim, shared=False)
-        mlstm.weights_init = IsotropicGaussian(std=numpy.sqrt(2) / numpy.sqrt(config.word_embed_size + config.lstm_dim))
+        mlstm.weights_init = IsotropicGaussian(std=numpy.sqrt(2) / numpy.sqrt(config.word_embed_dim + config.lstm_dim))
         mlstm.biases_init = Constant(0)
         mlstm.initialize()
         mlstm_hidden, mlstm_cell = mlstm.apply(inputs=mlstm_ins.apply(text_vec),
                                                mask=text_mask.astype(theano.config.floatX))
-        text_encodes = mlstm[-1]
+        text_encodes = mlstm_hidden[-1]
 
         # Calculate negtive samping cost
         # Reference:Mikolov T, Sutskever I, Chen K, et al.
         #           Distributed Representations of Words and Phrases and their Compositionality[J].
         #           Advances in Neural Information Processing Systems, 2013, 26:3111-3119.
         def get_cost(enc, th, nh):
-            return enc.dot(th), enc.dot(nh)
+            '''
+            :param enc: text encoding
+            :param th: true hashtag
+            :param nh: negtive hashtags
+            :return:
+            '''
+            # return tensor.dot(enc, th), tensor.dot(nh,enc)
+            return enc.dot(th), nh.dot(enc)
 
-        ([t_pred, n_pred], _) = theano.scan(get_cost,
-                            sequences=[text_encodes,true_hashtag_vec, neg_hashtag_vec],
+        input_vec = tensor.concatenate([text_encodes, user_vec], axis=1)
+        (t_pred, n_pred), _ = theano.scan(get_cost,
+                            sequences=[input_vec,true_hashtag_vec, neg_hashtag_vec],
                             n_steps=hashtag.shape[0])
         cost = numpy.log(1./(1.+numpy.exp(-t_pred))).mean()+numpy.log(1./(1.+numpy.exp(n_pred))).sum(axis = 1).mean()
         cost = -cost
-        pred = numpy.concatenate([t_pred, n_pred], axis = 1)
+        pred = tensor.concatenate([t_pred[:,None], n_pred], axis = 1)
         max_index = pred.argmax(axis = 1)
         error_rate = tensor.neq(0, max_index).mean()
 
+        cg = ComputationGraph(cost)
+        # W = VariableFilter(roles = [WEIGHT])(cg.variables)
+        # print(W)
         # Monitor values
         cost.name = 'cost'
         error_rate.name = 'error_rate'
+        self.sgd_cost = cost
         self.monitor_vars = [[cost], [error_rate]]
         self.monitor_vars_valid = [[cost], [error_rate]]
 
-
-def get_index(cum_num, rv):
-    # bisect search
-    def bisect_search(sorted_na, value):
-        '''
-        Do bisect search
-        :param sorted_na: cumulated sum array
-        :param value: random value
-        :return: the index that sorted_na[index-1]<=value<sorted_na[index] with defining sorted_na[-1] = -1
-        '''
-        if len(sorted_na) == 1:
-            return 0
-        left_index = 0
-        right_index = len(sorted_na) - 1
-
-        while right_index - left_index > 1:
-            mid_index = (left_index + right_index) / 2
-            # in right part
-            if value > sorted_na[mid_index]:
-                left_index = mid_index
-            elif value < sorted_na[mid_index]:
-                right_index = mid_index
-            else:
-                return min(mid_index + 1, right_index)
-        return right_index
-
-    if len(cum_num) < 20000:  # This value is obtained by test
-        index = numpy.argmin(numpy.abs(cum_num - rv))
-        if rv >= cum_num[index]:
-           return index + 1
-    else:
-        return bisect_search(cum_num, rv)
 
 #region Reference Model
 class MTLM(object):

@@ -16,7 +16,7 @@ class BasicConfig:
     mode = "debug"
 
     #region raw dataset control parameters
-    project_dir = "E:/projects/Hashtag/"
+    project_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
     # GPU: "int32"; CPU: "int64"
     int_type = "int32"
@@ -30,7 +30,10 @@ class BasicConfig:
     # Measured by batches, e.g, valid every 1000 batches
     valid_freq = 1000
     save_freq = 1000
-    print_freq = 100    
+    print_freq = 100
+
+    # NLTK data path
+
 
 
 class UGC(BasicConfig):
@@ -85,6 +88,10 @@ class UTHC(BasicConfig):
     hashtag_index = 2
 
     date_index = 3
+
+    #sparse word threshold
+    sparse_word_percent = 0.01
+
     # file path storing id to index dictionaries
     data_dir = os.path.join(BasicConfig.project_dir, "output/table/")
 
@@ -92,9 +99,9 @@ class UTHC(BasicConfig):
 
     word2index_path = os.path.join(data_dir, "word2index.txt")
 
-    hashtag2index_path = os.path.join(data_dir, "hashtag2index.txt")
+    word2freq_path = os.path.join(data_dir, "word2freq.txt")
 
-    #endregion
+    hashtag2index_path = os.path.join(data_dir, "hashtag2index.txt")
 
     # region Model control parameters
     user_embed_dim = 100

@@ -1,4 +1,6 @@
 import logging
+import io
+import os
 
 import numpy
 
@@ -17,6 +19,8 @@ class SaveLoadParams(SimpleExtension):
 		self.model = model
 
 	def do_save(self):
+		if not os.path.exists(os.path.dirname(self.path)):
+			os.makedirs(os.path.dirname(self.path))
 		with open(self.path, 'wb') as f:
 			logger.info('Saving parameters to %s...'%self.path)
 			cPickle.dump(self.model.get_parameter_values(), f, protocol=cPickle.HIGHEST_PROTOCOL)

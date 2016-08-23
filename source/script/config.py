@@ -1,1 +1,0 @@
-basedir = "./input/conll"

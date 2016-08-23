@@ -12,6 +12,7 @@ from fuel.datasets import Dataset, IndexableDataset
 from fuel.streams import DataStream
 from fuel.schemes import IterationScheme, ConstantScheme, IndexScheme, ShuffledExampleScheme, SequentialScheme
 from fuel.transformers import Batch, Mapping, SortMapping, Unpack, Padding, Transformer
+from nltk.tokenize import TweetTokenizer
 
 #import system module
 import sys
@@ -362,17 +363,20 @@ class UHGD(object):
             hashtag_list = hashtag_list+hashtags
 
 
-class UTHD(object):
+class BUTHD(object):
     '''
     Basic dataset with user-text-time-hashtag information.
-    load dataset --> convert string type date into date object --> id2index and store --> get items of given date -->
-    --> construct iterable dataset --> construct shuffled fuel stream
+
+    load dataset --> convert string type date into date object --> load or extract id2index and store --> get samples of given date -->
+    --> construct indexable dataset --> construct shuffled or sequencial fuel stream
     '''
     def __init__(self, config):
         self.config = config
         self.user2index = None
         self.hashtag2index = None
         self.word2index = None
+        self.word2freq = None
+        self.sparse_word_threshold = None
         self.users = None
         self.words = None
         self.hashtags = None
@@ -383,6 +387,7 @@ class UTHD(object):
         self.compare_source = 'text'
         self.LAST_DAY = "LAST_DAY"
         self.FIRST_DAY = "FIRST_DAY"
+        twtk = TweetTokenizer(reduce_len=True)
 
     def get_shuffled_stream(self, data_path = None, date_begin = None, date_end = None):
         '''
@@ -471,7 +476,14 @@ class UTHD(object):
         :param data_path: string type path of the dataset file
         :return: [[field1_line1,field2_line2..],[field1_line2,...]...] format dataset
         '''
-        return base.read_file_by_line(data_path, delimiter=self.config.delimiter,field_num=self.config.field_num,mode=self.config.mode)
+        dataset = base.read_file_by_line(data_path, delimiter=self.config.delimiter,field_num=self.config.field_num,mode=self.config.mode)
+        fields = zip(*dataset)
+        tokenized_posts = []
+        for post in fields[self.config.text_index]:
+            tokens = self._tokenize(post)
+            tokenized_posts.append(tokens)
+        fields[self.config.text_index] = tokenized_posts
+        return zip(*fields)
 
     def _turn_str_date2obj(self, raw_dataset):
         '''
@@ -516,6 +528,11 @@ class UTHD(object):
         else:
             self.user2index = self._extract_user2index(fields[self.config.user_index])
             base.save_dic(self.config.user2index_path, self.user2index)
+        if path.exists(self.config.word2freq_path):
+            self.word2freq = base.load_dic(self.config.word2freq_path, mode=self.config.mode)
+        else:
+            self.word2freq = self._extract_word2freq(fields[self.config.text_index])
+            base.save_dic(self.config.word2freq_path, self.word2freq)
         if path.exists(self.config.word2index_path):
             self.word2index = base.load_dic(self.config.word2index_path, mode=self.config.mode)
         else:
@@ -530,8 +547,32 @@ class UTHD(object):
 
         self.users = numpy.array([self.user2index[user] for user in fields[self.config.user_index]], dtype = self.config.int_type)
         self.hashtags = numpy.array([self.hashtag2index[hashtag] for hashtag in fields[self.config.hashtag_index]], dtype = self.config.int_type)
-        self.texts = numpy.array([numpy.array([self.word2index[word] for word in text.split(' ')], dtype = self.config.int_type) for text in fields[self.config.text_index]])
+        self.texts = numpy.array([numpy.array([self.word2index[self._stem(word)] for word in text], dtype = self.config.int_type) for text in fields[self.config.text_index]])
         self.dates = numpy.asarray(fields[self.config.date_index])
+
+    def _extract_word2freq(self, texts):
+        assert  texts is not None
+        word2freq = {}
+        for words in texts:
+            for word in words:
+                if word not in word2freq:
+                    word2freq[word] = 1
+                else:
+                    word2freq[word] += 1
+
+        return word2freq
+
+    def _get_sparse_word_threshold(self):
+        num = numpy.array(self.word2freq.values())
+        num.sort()
+        total = num.sum()
+        cum_num = num.cumsum()
+        threshold = int(total*self.config.sparse_word_percent)
+        min_index = numpy.argmin(numpy.abs(threshold-cum_num))
+        if cum_num[min_index] > threshold:
+            self.sparse_word_threshold = num[numpy.max(min_index-1,0)]
+        else:
+            self.sparse_word_threshold = num[min_index]
 
     def _extract_user2index(self, users):
         assert  users is not None
@@ -544,9 +585,9 @@ class UTHD(object):
     def _extract_word2index(self, texts):
         assert  texts is not None
         word2index = {}
-        for text in texts:
-            words = text.split(' ')
+        for words in texts:
             for word in words:
+                word = self._stem(word)
                 if word not in word2index:
                     word2index[word] = len(word2index)
         return word2index
@@ -592,6 +633,10 @@ class UTHD(object):
         # Add mask
         for source in self.need_mask_sources.iteritems():
             stream = Padding(stream, mask_sources=[source[0]], mask_dtype= source[1])
+        stream = base.NegativeSample(stream,
+                                     [self.hashtag_dis_table],
+                                     sample_sources= ["hashtag"],
+                                     sample_sizes= [self.config.hashtag_sample_size])
         return stream
 
     def _construct_sequencial_stream(self, dataset):
@@ -603,6 +648,10 @@ class UTHD(object):
         # Add mask
         for source in self.need_mask_sources.iteritems():
             stream = Padding(stream, mask_sources=[source[0]], mask_dtype= source[1])
+        stream = base.NegativeSample(stream,
+                                     [self.hashtag_dis_table],
+                                     sample_sources=["hashtag"],
+                                     sample_sizes=[self.config.hashtag_sample_size])
         return stream
 
     def _construct_hashtag_distribution(self):
@@ -613,17 +662,42 @@ class UTHD(object):
         count,_ = numpy.histogram(self.hashtags, bins = len(self.hashtag2index))
         count = count**(3.0/4)
         count = count/count.sum()
-        self.hashtag_dis_table = count.cumsum().astype(theano.config.floatX)
+        self.hashtag_dis_table = (numpy.arange(len(self.hashtag2index)), count)
 
+    def _tokenize(self, text):
+        if text is None:
+            return []
+        else:
+            return twtk.tokenize(text)
+
+    def _stem(self, word):
+        '''
+        Do word stemming
+        :param word: original string type of word
+        :return: stemmed word
+        '''
+        if self.sparse_word_threshold is None:
+            self._get_sparse_word_threshold()
+        if word in self.word2freq and self.word2freq[word] > self.sparse_word_threshold:
+            return word
+        elif word.startwith('http'):
+            return 'URL'
+        else:
+            return '<unk>'
+
+
+class UTHD(object):
+    pass
 
 if __name__ == "__main__":
     from config.hashtag_config import UTHC
     config = UTHC()
-    dataset = UTHD(config)
-    stream = dataset.get_shuffled_stream(date_begin= dataset.FIRST_DAY, date_end = 3)
+    dataset = BUTHD(config)
+    stream = dataset.get_shuffled_stream()
+    print("\t".join(stream.sources))
     for batch in stream.get_epoch_iterator():
-        print(batch[0])
-        print(batch[1])
+        print(batch[stream.sources.index('hashtag')])
+        print(batch[stream.sources.index('hashtag_negtive_sample')])
         if raw_input("continue?y|n") == 'n':
             break
 

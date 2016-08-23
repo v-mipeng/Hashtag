@@ -101,13 +101,12 @@ class MLSTM(object):
         it will apply "times" different lstm on the input sequence
         
     '''
-    def __init__(self, times, dim, activation = None, gate_activation = None, shared = False, **kwargs):
+    def __init__(self, times, dim, activation = None, shared = False, **kwargs):
 
         self.times = times
         self.shared = shared
         self.dim = dim
         self.activation = activation
-        self.gate_activation = gate_activation
         self.weights_init = None
         self.biases_init = None
         self.model = LSTM
@@ -131,9 +130,9 @@ class MLSTM(object):
         self.rnns = []
         if not self.shared:
             for time in range(self.times):
-                self.rnns.append(self.model(self.dim, self.activation, self.gate_activation, name = "lstm_%s" %time))
+                self.rnns.append(self.model(self.dim, self.activation, name = "lstm_%d" %time))
         else:
-            self.rnns = [self.model(self.dim, self.activation, self.gate_activation, name = "lstm")]*self.times
+            self.rnns = [self.model(self.dim, self.activation, name = "lstm")]*self.times
             
     def initialize(self):
         self.init()

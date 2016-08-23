@@ -1,12 +1,7 @@
 # -*- coding : utf-8 -*-
 
 import sys
-sys.path.append("..")
 import logging
-import numpy
-import re
-import nltk
-
 import ntpath
 import codecs
 import os
@@ -14,12 +9,100 @@ from abc import abstractmethod, ABCMeta
 from error import MentionNotFoundError
 from error import *
 
+import numpy
+from fuel.transformers import Transformer
+
+from nltk.tokenize import TweetTokenizer
 
 class _balanced_batch_helper(object):
     def __init__(self, key):
         self.key = key
     def __call__(self, data):
         return data[self.key].shape[0]
+
+
+class NegativeSample(Transformer):
+
+    def __init__(self, data_stream, dist_tables, sample_sources, sample_sizes, **kwargs):
+        # produces_examples = False: invoke transform_batch() otherwise transform_example()
+        super(NegativeSample, self).__init__(
+            data_stream, produces_examples=False, **kwargs)
+        self.dist_tables = dist_tables
+        self.sample_sources = sample_sources
+        self.sample_sizes = sample_sizes
+
+    @property
+    def sources(self):
+        sources = []
+        for source in self.data_stream.sources:
+            sources.append(source)
+            if source in self.sample_sources:
+                sources.append(source + '_negtive_sample')
+        return tuple(sources)
+
+    def transform_batch(self, batch):
+        batch_with_samplings = []
+        i = 0
+        for source, source_batch in zip(self.data_stream.sources, batch):
+            if source not in self.sample_sources:
+                batch_with_samplings.append(source_batch)
+                continue
+
+            neg_samples = []
+            for source_example in source_batch:
+                neg_sample = []
+                while len(neg_sample) < self.sample_sizes[i]:
+                    ids = self.sample_id(self.dist_tables[i], self.sample_sizes[i])
+                    for id in ids:
+                        if len(numpy.where(source_example == id)[0]) == 0:
+                            neg_sample.append(id)
+                            if len(neg_sample) == self.sample_sizes[i]:
+                                break
+                neg_samples.append(neg_sample)
+            neg_samples = numpy.array(neg_samples, dtype= source_batch.dtype)
+            batch_with_samplings.append(source_batch)
+            batch_with_samplings.append(neg_samples)
+        i = i+1
+        return tuple(batch_with_samplings)
+
+
+    def sample_id(self, num_by_id, sample_size = 1):
+        # bisect search
+        def bisect_search(sorted_na, value):
+            '''
+            Do bisect search
+            :param sorted_na: cumulated sum array
+            :param value: random value
+            :return: the index that sorted_na[index-1]<=value<sorted_na[index] with defining sorted_na[-1] = -1
+            '''
+            if len(sorted_na) == 1:
+                return 0
+            left_index = 0
+            right_index = len(sorted_na)-1
+
+            while right_index-left_index > 1:
+                mid_index = (left_index + right_index) / 2
+                # in right part
+                if value > sorted_na[mid_index]:
+                    left_index = mid_index
+                elif value < sorted_na[mid_index]:
+                    right_index = mid_index
+                else:
+                    return min(mid_index+1,right_index)
+            return right_index
+        id, num = num_by_id
+        cum_num = num.cumsum()
+        rvs = numpy.random.uniform(low = 0.0, high = cum_num[-1], size=(sample_size,))
+        ids = []
+        for rv in rvs:
+            if len(id) < 20000: # This value is obtained by test
+                index = numpy.argmin(numpy.abs(cum_num-rv))
+                if rv >= cum_num[index]:
+                    index += 1
+            else:
+                index = bisect_search(cum_num, rv)
+            ids.append(id[index])
+        return ids
 
 
 def split_train_valid(data , valid_portion):
@@ -104,6 +187,15 @@ def save_dic(path, dictionary):
     with codecs.open(path, "w+", encoding = "UTF-8") as f:
         for key, value in dictionary.iteritems():
             f.write("%s\t%s\n" % (key, value))
+
+twtk = TweetTokenizer()
+def tokenize_sentence(sentence):
+    global twtk
+    if sentence is None:
+        return []
+    else:
+        return twtk._tokenize(sentence)
+
 
 
 if __name__ == "main":

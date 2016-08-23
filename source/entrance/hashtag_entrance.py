@@ -1,6 +1,7 @@
 ﻿import logging
 import numpy
 import sys
+sys.path.append("..")
 import os
 
 import theano
@@ -13,7 +14,7 @@ from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.algorithms import GradientDescent
 
-from dataset.hashtag_dataset import  UTHD
+from dataset.hashtag_dataset import  BUTHD
 from paramsaveload import SaveLoadParams
 
 from config.hashtag_config import UTHC
@@ -25,7 +26,7 @@ from base import *
 
 try:
     from blocks_extras.extensions.plot import Plot
-    plot_avail = True
+    plot_avail = False
 except ImportError:
     plot_avail = False
     print "No plotting extension available."
@@ -453,7 +454,7 @@ class UTHE(object):
 
     def __init__(self):
         self.config = UTHC
-        self.dataset = UTHD(self.config)
+        self.dataset = BUTHD(self.config)
         self.model = None
 
     def train(self, train_path = None, model_path = None):
@@ -478,7 +479,7 @@ class UTHE(object):
             self.model_path = model_path
 
         # Build train stream
-        train_stream = self.dataset.get_shuffled_stream(train_path, date_begin= self.dataset.LAST_DAY, date_end = 3)
+        train_stream = self.dataset.get_shuffled_stream(train_path)
 
         # Build model
 
@@ -490,17 +491,27 @@ class UTHE(object):
                                     step_rule=self.config.step_rule,
                                     parameters=cg.parameters,
                                     on_unused_sources='ignore')
-        extensions = [
-            TrainingDataMonitoring(
-                [v for l in self.model.monitor_vars for v in l],
-                prefix='train',
-                every_n_batches=self.config.print_freq)
-        ]
+
+        if plot_avail:
+            extensions = [FinishAfter(after_n_epochs=1),
+                    TrainingDataMonitoring([v for l in self.model.monitor_vars for v in l],
+                                           prefix = 'train',
+                                           every_n_batches=self.config.print_freq),
+                    Plot('Training Process',
+                         channels=[[self.model.monitor_vars[0][0].name], [self.model.monitor_vars[1][0].name]],
+                         after_batch=True)]
+        else:
+            extensions = [
+                TrainingDataMonitoring(
+                    [v for l in self.model.monitor_vars for v in l],
+                    prefix='train',
+                    every_n_batches=self.config.print_freq)
+            ]
 
         if self.config.save_freq is not None and model_path is not None:
             extensions += [
                 SaveLoadParams(path=model_path,
-                               model=self.model,
+                               model=cg,
                                before_training=True,  # if exist model, the program will load it first
                                after_training=True,
                                after_epoch=True,

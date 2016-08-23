@@ -1,4 +1,0 @@
-'''
-Delete items
-'''
-import re
