@@ -92,6 +92,9 @@ class UTHC(BasicConfig):
     #sparse word threshold
     sparse_word_percent = 0.01
 
+    # date span for traing
+    duration = 3
+
     # file path storing id to index dictionaries
     data_dir = os.path.join(BasicConfig.project_dir, "output/table/")
 

@@ -367,68 +367,49 @@ class BUTHD(object):
     '''
     Basic dataset with user-text-time-hashtag information.
 
-    load dataset --> convert string type date into date object --> load or extract id2index and store --> get samples of given date -->
+    load dataset --> parse string type date --> map user, hashtag, word to id --> provide samples of given date -->
     --> construct indexable dataset --> construct shuffled or sequencial fuel stream
     '''
     def __init__(self, config):
         self.config = config
+        # Dictionary
         self.user2index = None
         self.hashtag2index = None
         self.word2index = None
         self.word2freq = None
+        # Integer. Word whose frequency is less than the threshold will be stemmed
         self.sparse_word_threshold = None
+        # 1D numpy array. Storing the user ids in file reading order
         self.users = None
+        # 2D numpy array. Storing the post words in file reading order
         self.words = None
+        # 1D numpy array. Storing the hashtags in file reading order
         self.hashtags = None
+        # 1D numpy array. Storing the post dates in file reading order
         self.dates = None
+        # Integer. Date span of the posted tweets
+        self.date_span = 0
+        # (1D numpy array, 1D numpy array). Storing hashtag id and hashtag normed number pair
         self.hashtag_dis_table = None
         self.provide_souces = ('user', 'text', 'hashtag')
         self.need_mask_sources = {'text':config.int_type}
         self.compare_source = 'text'
         self.LAST_DAY = "LAST_DAY"
         self.FIRST_DAY = "FIRST_DAY"
-        twtk = TweetTokenizer(reduce_len=True)
 
-    def get_shuffled_stream(self, data_path = None, date_begin = None, date_end = None):
+    def get_parameter_to_save(self):
         '''
-        Get the stream of the dataset of given date
-        :param data_path: string type path of the dataset. If not given, get data from the dataset last loaded
-        :param date_begin: datetime.date object, if not given, the first day of the dataset assigned
-        :param date_end: datetime.date object, if not given, the last day of the dataset assigned
-               date_begin , date_end , result_description
-               date obj     date obj   return the dataset of the given days [date_begin, date_end)
-               None         date obj   return dataset from the first day to the given date_end
-               date obj     None       return dataset from the given day to the last day of the dataset
-               None         None       return all of the dataset
-               FIRST_DAY    INT(p/n)   return the dataset from the first day to the first_day+delta(INT DAYS) int should be positive
-               LAST_DAY     INT(p/n)   return the dataset from the last day to the last_day+delta(INT DAYS) int should be negtive
-
-        :return: a shuffled stream constructed from the items of the given day
+        Return parameters that need to be saved with model
+        :return:
         '''
-        dataset = self._get_dataset(data_path, date_begin, date_end)
-        return self._construct_shuffled_stream(dataset)
+        return OrderedDict({'hashtag2index' : self.hashtag2index, 'word2index' : self.word2index, 'user2index' : self.user2index})
 
-    def get_sequencial_stream(self, data_path = None, date_begin = None, date_end = None):
+    def prepare(self, data_path = None):
         '''
-        Get the stream of the dataset of given date
-        :param data_path: string type path of the dataset. If not given, get data from the dataset last loaded
-        :param date_begin: datetime.date object, if not given, the first day of the dataset assigned
-        :param date_end: datetime.date object, if not given, the last day of the dataset assigned
-               date_begin , date_end , result_description
-               date obj     date obj   return the dataset of the given days [date_begin, date_end)
-               None         date obj   return dataset from the first day to the given date_end
-               date obj     None       return dataset from the given day to the last day of the dataset
-               None         None       return all of the dataset
-               FIRST_DAY    INT(p/n)   return the dataset from the first day to the first_day+delta(INT DAYS) int should be positive
-               LAST_DAY     INT(p/n)   return the dataset from the last day to the last_day+delta(INT DAYS) int should be negtive
-
-        :return: a sequencial stream constructed from the items of the given day
+        Prepare dataset
+        :param data_path:
+        :return:
         '''
-        dataset = self._get_dataset(data_path, date_begin, date_end)
-        return self._construct_sequencial_stream(dataset)
-
-    def _get_dataset(self, data_path = None, date_begin = None, date_end = None):
-        # Load dataset if data_path is not None
         if data_path is None and self.users is None:
             data_path = self.config.train_path
         if data_path is not None:
@@ -436,38 +417,55 @@ class BUTHD(object):
             raw_dataset = self._turn_str_date2obj(raw_dataset)
             self._turn_str2index(raw_dataset)
             self._construct_hashtag_distribution()
-        else:
-            pass
+
+    def get_shuffled_stream(self, data_path = None, reference_date = "LAST_DAY", date_offset = 0, duration = 3):
+        '''
+        Get shuffled stream of the dataset constructed with samples posted within given date duration
+        date duration :
+            if reference_date is FIRST_DAY:
+                duration = 9first_day + date_offset - duration, first_day + date_offset]
+            else:
+                duration = 9last_day - date_offset - duration, last_day - date_offset)
+        :param data_path: string type path of the dataset. If not given, get data from the dataset last loaded
+        :param reference_date: 'FIRST_DAY' OR 'LAST_DAT', 'FIRST_DAY' (by default)
+        :param date_offset: integer type, 0 (by default)
+        :param duration: integer type, 3 (by default)
+        :return: a shuffled stream constructed from the items of the given day
+        '''
+        dataset = self._get_dataset(data_path, reference_date = "LAST_DAY", date_offset = 0, duration = 3)
+        return self._construct_shuffled_stream(dataset)
+
+    def get_sequencial_stream(self, data_path = None, reference_date = "LAST_DAY", date_offset = 0, duration = 3):
+
+        '''
+        Get sequencial stream of the dataset constructed with samples posted within given date duration
+        date duration :
+            if reference_date is FIRST_DAY:
+                duration = 9first_day + date_offset - duration, first_day + date_offset]
+            else:
+                duration = 9last_day - date_offset - duration, last_day - date_offset]
+        :param data_path: string type path of the dataset. If not given, get data from the dataset last loaded
+        :param reference_date: 'FIRST_DAY' OR 'LAST_DAT', 'LAST_DAT' (by default)
+        :param date_offset: integer type, 0 (by default)
+        :param duration: integer type, 3 (by default)
+        :return: a sequencial stream constructed from the items of the given day
+        '''
+        dataset = self._get_dataset(data_path, reference_date = "LAST_DAY", date_offset = 0, duration = 3)
+        return self._construct_sequencial_stream(dataset)
+
+    def _get_dataset(self, data_path = None, reference_date = "LAST_DAY", date_offset = 0, duration = 3):
+        self.prepare(data_path)
         # Get duration of the dataset to load
-        if date_begin == self.FIRST_DAY:
-            date_begin = self.dates.min()
-            date_end = date_begin+datetime.timedelta(days= date_end)
-        elif date_begin == self.LAST_DAY:
-            delta = datetime.timedelta(days=date_end)
-            date_end = self.dates.max()
-            date_begin = date_end - delta
-        elif date_begin is None and date_end is None:
-            dataset = (self.users, self.texts, self.hashtags)
-            return self._construct_dataset(dataset)
-        elif date_begin is None and date_end is not None:
-            date_begin = self.dates[-1]
-        elif date_begin is not None and date_end is None:
-            date_end = self.dates[0]
+        if reference_date == self.FIRST_DAY:
+            date_end = self.dates.min() + datetime.timedelta(days= date_offset)
+            date_begin = date_end - datetime.timedelta(days= duration)
+        elif reference_date == self.LAST_DAY:
+            date_end = self.dates.max() - datetime.timedelta(days=date_offset)
+            date_begin = date_end - datetime.timedelta(days=duration)
         else:
-            pass
-        # Find dataset of given duration
-        # users = numpy.array([], dtype=self.config.int_type)
-        # texts = numpy.array([], dtype=self.config.int_type)
-        # hashtags = numpy.array([], dtype=self.config.int_type)
-        # date = date_begin
-        # while date < date_end:
-        #     us, ts, hs = self._find_data_by_date(date)
-        #     users = numpy.concatenate((users, us), axis=0)
-        #     texts = numpy.concatenate((texts, ts), axis=0)
-        #     hashtags = numpy.concatenate((hashtags, hs), axis=0)
-        #     date = date + datetime.timedelta(days=1)
+            raise ValueError('reference_date should only be "FIRST_DAY" or "LAST_DAY"!')
+
         dataset = self._find_data_by_date(date_begin, date_end)
-        # dataset = (users, texts, hashtags)
         return self._construct_dataset(dataset)
 
     def _load_dataset(self, data_path):
@@ -480,7 +478,7 @@ class BUTHD(object):
         fields = zip(*dataset)
         tokenized_posts = []
         for post in fields[self.config.text_index]:
-            tokens = self._tokenize(post)
+            tokens = post.split(' ')
             tokenized_posts.append(tokens)
         fields[self.config.text_index] = tokenized_posts
         return zip(*fields)
@@ -500,23 +498,17 @@ class BUTHD(object):
 
     def _parse_date(self, str_date):
         '''
-        TODO: Parse string format date.
+        Parse string format date.
 
         Reference: https://docs.python.org/2/library/time.html or http://strftime.org/
         :return: A datetime.date object
         '''
-        if self.config.mode == "debug":
-            date = datetime.datetime.strptime(str_date, "%a %b %d %H:%M:%S +0000 %Y").date()
-            return date
-        else:
-            return datetime.datetime.strptime(str_date, "%a %b %d %H:%M:%S +0000 %Y").date()
+        return datetime.datetime.strptime(str_date, "%a %b %d %H:%M:%S +0000 %Y").date()
 
     def _turn_str2index(self, raw_dataset):
         '''
-        Turn user, words of context, hashtag representation into index representation.
+        Turn string type user, words of context, hashtag representation into index representation.
         load the dictionaries if existing otherwise extract from dataset and store them
-        :param raw_dataset:
-        :return:
         '''
         # try to load mapping dictionaries
         self.user2index = {}
@@ -549,8 +541,14 @@ class BUTHD(object):
         self.hashtags = numpy.array([self.hashtag2index[hashtag] for hashtag in fields[self.config.hashtag_index]], dtype = self.config.int_type)
         self.texts = numpy.array([numpy.array([self.word2index[self._stem(word)] for word in text], dtype = self.config.int_type) for text in fields[self.config.text_index]])
         self.dates = numpy.asarray(fields[self.config.date_index])
+        self.date_span = self.dates.max() - self.dates.min()+1
 
     def _extract_word2freq(self, texts):
+        '''
+        Count word frequency
+        :param texts:
+        :return:
+        '''
         assert  texts is not None
         word2freq = {}
         for words in texts:
@@ -559,10 +557,32 @@ class BUTHD(object):
                     word2freq[word] = 1
                 else:
                     word2freq[word] += 1
-
         return word2freq
 
+    def _extract_user2freq(self, users):
+        assert users is not None
+        user2freq = {}
+        for user in users:
+            if user not in user2freq:
+                user2freq[user] = 1
+            else:
+                user2freq[user] += 1
+        return user2freq
+
+    def _extract_hashtag2freq(self, hashtags):
+        assert hashtags is not None
+        hashtag2freq = {}
+        for hashtag in hashtags:
+            if hashtag not in hashtag2freq:
+                hashtag2freq[hashtag] = 1
+            else:
+                hashtag2freq[hashtag] += 1
+        return hashtag2freq
+
     def _get_sparse_word_threshold(self):
+        '''
+        Get the frequency threshold. Word with its frequency below the threshold will be treated as sparse word
+        '''
         num = numpy.array(self.word2freq.values())
         num.sort()
         total = num.sum()
@@ -602,15 +622,13 @@ class BUTHD(object):
 
     def _find_data_by_date(self, date_begin, date_end):
         '''
-        Find items by date
-        :param date:
+        Find samples posted during (data_begin,data_end)
+        :param date_begin:
+        :param date_end:
         :return: [[field1_line1,field2_line2..],[field1_line2,...]...] format dataset for given date
         '''
-        # idxes = []
-        # for i in range(len(self.users)):
-        #     if self.dates[i] < date_end and self.dates[i] >= date_begin:
-        #         idxes.append(i)
-        idxes = (self.dates >= date_begin) * (self.dates < date_end)
+
+        idxes = (self.dates > date_begin) * (self.dates <= date_end)
         return (self.users[idxes], self.texts[idxes], self.hashtags[idxes])
 
     def _construct_dataset(self, dataset):
@@ -664,12 +682,6 @@ class BUTHD(object):
         count = count/count.sum()
         self.hashtag_dis_table = (numpy.arange(len(self.hashtag2index)), count)
 
-    def _tokenize(self, text):
-        if text is None:
-            return []
-        else:
-            return twtk.tokenize(text)
-
     def _stem(self, word):
         '''
         Do word stemming
@@ -685,9 +697,20 @@ class BUTHD(object):
         else:
             return '<unk>'
 
+class SUTHD(BUTHD):
+    '''
+    Sequential user-text-hahstag dataset.Provide dataset in time order.
+    '''
 
-class UTHD(object):
-    pass
+    def __init__(self, config, duration):
+
+        self.duration = duration
+        super(SUTHD, self).__init__(config)
+
+    def get_stream(self, data_path):
+        pass
+
+
 
 if __name__ == "__main__":
     from config.hashtag_config import UTHC
