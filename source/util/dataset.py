@@ -28,6 +28,15 @@ class NegativeSample(Transformer):
         self.dist_tables = dist_tables
         self.sample_sources = sample_sources
         self.sample_sizes = sample_sizes
+        self._check_dist_table()
+
+    def _check_dist_table(self):
+        for i in range(len(self.dist_tables)):
+            _,count = self.dist_tables[i]
+            if not isinstance(count, numpy.ndarray):
+                count = numpy.array(count)
+            if sum(count == count.sum()) > 0:
+                raise ValueError('Cannot apply negtive sampling for the probability of one element is 1.0')
 
     @property
     def sources(self):
@@ -52,8 +61,6 @@ class NegativeSample(Transformer):
                 while len(neg_sample) < self.sample_sizes[i]:
                     ids = self.sample_id(self.dist_tables[i], self.sample_sizes[i])
                     for id in ids:
-                        if self.dist_tables[i][1][id] == 1.:
-                            raise ValueError('Cannot apply negtive sampling on {0} for its probability is 1.0'.format(id))
                         if len(numpy.where(source_example == id)[0]) == 0:
                             neg_sample.append(id)
                             if len(neg_sample) == self.sample_sizes[i]:
@@ -99,6 +106,8 @@ class NegativeSample(Transformer):
                 index = numpy.argmin(numpy.abs(cum_num-rv))
                 if rv >= cum_num[index]:
                     index += 1
+                else:
+                    pass
             else:
                 index = bisect_search(cum_num, rv)
             ids.append(id[index])

@@ -407,11 +407,8 @@ class BUTHD(object):
 
 
 class UTHD(object):
-    def __init__(self, config, data_path=None):
-        if data_path is None:
-            self.data_path = config.train_path
-        else:
-            self.data_path = data_path
+    def __init__(self, config):
+        self.data_path = config.data_path
         self.config = config
         # Dictionary
         self.user2index = {}
@@ -430,14 +427,16 @@ class UTHD(object):
         self.provide_souces = ('user', 'text', 'hashtag')
         self.need_mask_sources = {'text': config.int_type}
         self.compare_source = 'text'
+        self.sample_from = [self.hashtag_dis_table]
+        self.sample_sources = ['hashtag']
+        self.sample_sizes = [config.hashtag_sample_size]
         self.raw_dataset = BUTHD(config)
-        self.date_iterator = None
         self._initialize()
 
     def _initialize(self):
         '''
+        Load dataset information of last day
         Initialize fields: user2index, hashtag2index and so on
-        :return:
         '''
         if os.path.exists(self.config.model_path):
             with open(self.config.model_path, 'rb') as f:
@@ -470,7 +469,7 @@ class UTHD(object):
         :param duration: integer type, 3 (by default)
         :return: a shuffled stream constructed from the items of the given day
         '''
-        dataset = self._get_dataset(self.data_path, reference_date=reference_date, date_offset=date_offset,
+        dataset = self._get_dataset(reference_date=reference_date, date_offset=date_offset,
                                     duration=duration, update=update)
         return self._construct_shuffled_stream(dataset)
 
@@ -489,14 +488,11 @@ class UTHD(object):
         :param duration: integer type, 3 (by default)
         :return: a sequencial stream constructed from the items of the given day
         '''
-        dataset = self._get_dataset(self.data_path, reference_date=reference_date, date_offset=date_offset,
+        dataset = self._get_dataset(reference_date=reference_date, date_offset=date_offset,
                                     duration=duration, update=update)
         return self._construct_sequencial_stream(dataset)
 
     def _get_dataset(self, reference_date="LAST_DAY", date_offset=0, duration=3, update=True):
-
-        # Get duration of the dataset to load
-
         raw_dataset = self.raw_dataset.get_dataset(reference_date=reference_date, date_offset=date_offset,
                                                    duration=duration)
         if update:
@@ -505,6 +501,12 @@ class UTHD(object):
         return self._construct_dataset(dataset)
 
     def _update(self, raw_dataset):
+        '''
+        Update dataset information.
+        Extend user2index, word2index, hashtag2index
+        Statistic user, word and hashtag frequence within the raw_dataset
+        :param raw_dataset: ndarray or list
+        '''
         fields = zip(*raw_dataset)
         self.word2freq = self._extract_word2freq(fields[self.config.text_index])
 
@@ -537,7 +539,7 @@ class UTHD(object):
                              dtype=self.config.int_type)
                  for text in fields[self.config.text_index]]
         if update:
-            self.hashtag_dis_table = self._construct_hashtag_distribution(hashtags)
+            self.hashtag_dis_table = self._construct_distribution_table(hashtags)
         return (users, texts, hashtags)
 
     def _get_user_index(self, user, update=True):
@@ -607,32 +609,6 @@ class UTHD(object):
         else:
             return num[min_index]
 
-    def _extract_user2index(self, users):
-        assert users is not None
-        user2index = {}
-        for user in users:
-            if user not in user2index:
-                user2index[user] = len(user2index)
-        return user2index
-
-    def _extract_word2index(self, texts):
-        assert texts is not None
-        word2index = {}
-        for words in texts:
-            for word in words:
-                word = self._stem(word)
-                if word not in word2index:
-                    word2index[word] = len(word2index)
-        return word2index
-
-    def _extract_hashtag2index(self, hashtags):
-        assert hashtags is not None
-        hashtag2index = {}
-        for user in hashtags:
-            if user not in hashtag2index:
-                hashtag2index[user] = len(hashtag2index)
-        return hashtag2index
-
     def _construct_dataset(self, dataset):
         return IndexableDataset(indexables=OrderedDict(zip(self.provide_souces, dataset)))
 
@@ -653,10 +629,10 @@ class UTHD(object):
         # Add mask
         for source in self.need_mask_sources.iteritems():
             stream = Padding(stream, mask_sources=[source[0]], mask_dtype=source[1])
-        stream = dataset.NegativeSample(stream,
-                                        [self.hashtag_dis_table],
-                                        sample_sources=["hashtag"],
-                                        sample_sizes=[self.config.hashtag_sample_size])
+        stream = NegativeSample(stream,
+                                dist_tables=self.sample_from,
+                                sample_sources=self.sample_sources,
+                                sample_sizes=self.sample_sizes)
         return stream
 
     def _construct_sequencial_stream(self, dataset):
@@ -668,21 +644,19 @@ class UTHD(object):
         # Add mask
         for source in self.need_mask_sources.iteritems():
             stream = Padding(stream, mask_sources=[source[0]], mask_dtype=source[1])
-        stream = dataset.NegativeSample(stream,
-                                        [self.hashtag_dis_table],
-                                        sample_sources=["hashtag"],
-                                        sample_sizes=[self.config.hashtag_sample_size])
+        stream = NegativeSample(stream,
+                                dist_tables=self.sample_from,
+                                sample_sources=self.sample_sources,
+                                sample_sizes=self.sample_sizes)
         return stream
 
-    def _construct_hashtag_distribution(self, hashtags):
+    def _construct_distribution_table(self, elements):
         '''
         Build hashtag distribution table
-        :return:
         '''
-        count, _ = numpy.histogram(hashtags, bins=len(self.hashtag2index))
+        id, count = numpy.unique(elements, return_counts=True)
         count = count ** (3.0 / 4)
-        count = count / count.sum()
-        return (numpy.arange(len(self.hashtag2index)), count)
+        return (id, count)
 
     def _stem_word(self, word):
         '''
@@ -728,16 +702,14 @@ class UTHD(object):
             return '<unk>'
 
 
-class SUTHD(object):
+class SUTHD(UTHD):
     '''
     Sequential user-text-hahstag dataset.Provide dataset in time order.
     '''
 
-    def __init__(self, config, data_path = None):
-        if data_path is None:
-            self.data_path = config.train_path
-        else:
-            self.data_path = data_path
+    def __init__(self, config):
+        super(SUTHD, self).__init__(config)
+        self.data_path = config.data_path
         self.config = config
         # Dictionary
         self.user2index = {}
@@ -887,7 +859,7 @@ class SUTHD(object):
                              dtype = self.config.int_type)
                             for text in fields[self.config.text_index]]
         if update:
-            self.hashtag_dis_table = self._construct_hashtag_distribution(hashtags)
+            self.hashtag_dis_table = self._construct_distribution_table(hashtags)
         return (users, texts, hashtags)
 
     def _get_user_index(self, user, update = True):
@@ -1024,15 +996,14 @@ class SUTHD(object):
                                         sample_sizes=[self.config.hashtag_sample_size])
         return stream
 
-    def _construct_hashtag_distribution(self, hashtags):
+    def _construct_distribution_table(self, elements):
         '''
         Build hashtag distribution table
         :return:
         '''
-        count, _ = numpy.histogram(hashtags, bins=len(self.hashtag2index))
+        id, count = numpy.unique(elements, return_counts=True)
         count = count ** (3.0 / 4)
-        count = count / count.sum()
-        return (numpy.arange(len(self.hashtag2index)), count)
+        return (id, count)
 
     def _stem_word(self, word):
         '''

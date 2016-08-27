@@ -7,7 +7,9 @@ import numpy
 from nltk.tokenize import TweetTokenizer
 from pymongo import  MongoClient
 
-from config.hashtag_config import UTHC
+import sys
+sys.path.extend("..")
+from config import UTHC
 from util import dataset
 
 
@@ -69,6 +71,32 @@ class MongoDumper(object):
             writer.write(line)
         except Exception as error:
             pass
+
+
+class UserNameDumper(MongoDumper):
+
+    def __init__(self, config):
+        super(UserNameDumper,self).__init__(config)
+
+    def dump(self, sample_size = 1000000, save_to = None):
+        cursor = self.table.find(
+            {'entities.hashtags.1': {'$exists': True}, 'lang': 'en', 'retweeted_status': {'$exists': False}})
+        if save_to is None:
+            save_to = self.config.data_path
+        with codecs.open(save_to, "w+", encoding="ascii", errors="strict") as writer:
+            count = 0
+            for post in cursor:
+                if count % 10000 == 0:
+                    print("%d posts dumped" % count)
+                time = post.get('created_at')
+                if not time.endswith('2015'):
+                    continue
+                user_id = post.get('user').get('id')
+                user_name = post.get('user').get('screen_name')
+                writer.write("{0}\t{1}\n".format(user_name, user_id))
+                count += 1
+                if count > sample_size:
+                    break
 
 
 class BUTHD(object):
@@ -151,9 +179,8 @@ def pickle_dataset(config = None, read_from = "path_to_read", save_to = "path_to
 
 
 if __name__ == "__main__":
-    from config.hashtag_config import UTHC
-    config = UTHC()
+    config = ScriptConfig()
     project_dir = config.project_dir
-    read_from = os.path.join(project_dir, "data/unit test/posts.uth")
-    save_to = os.path.join(project_dir, "data/unit test/posts_test.pkl")
-    pickle_dataset(read_from = read_from, save_to = save_to)
+    dumper = UserNameDumper(config)
+    dumper.dump(numpy.inf,save_to=os.path.join(project_dir, "data/tweet/user_name2id.txt"))
+
