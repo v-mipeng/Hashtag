@@ -1,19 +1,18 @@
-﻿import sys
+import sys
 sys.path.append("..")
 
-from blocks.extensions import Printing, SimpleExtension, FinishAfter, ProgressBar
+from blocks.extensions import Printing, FinishAfter, ProgressBar
 from blocks.extensions.monitoring import DataStreamMonitoring, TrainingDataMonitoring
-from blocks.graph import ComputationGraph
 from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.algorithms import GradientDescent
 
-from dataset.hashtag_dataset import  BUTHD, SUTHD
-from paramsaveload import SaveLoadParams
+from dataset import SUTHD
+from util.entrance import SaveLoadParams
 
-from config.hashtag_config import UTHC
+from config import UTHC
 
-from base import *
+from util.entrance import *
 import logging
 
 
@@ -128,15 +127,8 @@ class UTHE(object):
             load_from = "{0}_{1}.pkl".format(model_base_name, str(date))
             logger.info("Training model on date:{0} finished!".format(date))
 
-
     def test(self, test_path = None, test_result_path = None, model_path = None):
         raise NotImplementedError('subclasses must override test()!')
 
     def predict(self, predict_path = None, predict_result_path = None, model_path = None):
         raise NotImplementedError('subclasses must override predict()!')
-
-if __name__ == "__main__":
-    # Test UTHE
-    entrance = UTHE()
-    entrance.train()
-    pass

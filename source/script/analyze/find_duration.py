@@ -12,8 +12,8 @@ import datetime
 
 import numpy as np
 
-from config.hashtag_config import UTHC
-from dataset.hashtag_dataset import  BUTHD, SUTHD
+from config import UTHC
+from dataset import  BUTHD, SUTHD
 
 def get_distribution(tags):
     assert tags is not None

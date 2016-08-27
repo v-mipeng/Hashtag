@@ -1,18 +1,16 @@
 # -*- coding : utf-8 -*-
 
-import sys
-import logging
-import ntpath
 import codecs
+import ntpath
 import os
-from abc import abstractmethod, ABCMeta
-from error import MentionNotFoundError
-from error import *
+import sys
 
 import numpy
 from fuel.transformers import Transformer
-
 from nltk.tokenize import TweetTokenizer
+twtk = TweetTokenizer()
+from util.exception import *
+
 
 class _balanced_batch_helper(object):
     def __init__(self, key):
@@ -190,7 +188,7 @@ def save_dic(path, dictionary):
         for key, value in dictionary.iteritems():
             f.write("%s\t%s\n" % (key, value))
 
-twtk = TweetTokenizer()
+
 def tokenize_sentence(sentence):
     global twtk
     if sentence is None:
@@ -198,8 +196,4 @@ def tokenize_sentence(sentence):
     else:
         return twtk._tokenize(sentence)
 
-
-
-if __name__ == "main":
-    c = _balanced_batch_helper()
 

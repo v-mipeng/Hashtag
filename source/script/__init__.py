@@ -1,14 +1,14 @@
-import os
-import numpy
-import datetime
-import codecs
 import cPickle
-from pymongo import  MongoClient
+import codecs
+import datetime
+import os
+
+import numpy
 from nltk.tokenize import TweetTokenizer
+from pymongo import  MongoClient
+
 from config.hashtag_config import UTHC
-
-
-from dataset import base
+from util import dataset
 
 
 class ScriptConfig(UTHC):
@@ -90,7 +90,7 @@ class BUTHD(object):
         Prepare dataset
         '''
         print("Preparing dataset...")
-        raw_dataset = base.read_file_by_line(self.data_path, delimiter="\t", field_num=4, mode="debug")
+        raw_dataset = dataset.read_file_by_line(self.data_path, delimiter="\t", field_num=4, mode="debug")
         for sample in raw_dataset:
             sample[1] = sample[1].split(' ')
             sample[3] = self._parse_date(sample[3])
@@ -148,7 +148,6 @@ def pickle_dataset(config = None, read_from = "path_to_read", save_to = "path_to
     dataset = BUTHD(read_from).get_dataset()
     with open(save_to, 'wb+') as f:
         cPickle.dump(dataset, f, protocol=cPickle.HIGHEST_PROTOCOL)
-
 
 
 if __name__ == "__main__":

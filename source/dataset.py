@@ -1,4 +1,4 @@
-﻿# -*- coding : utf-8 -*-
+# -*- coding : utf-8 -*-
 '''
 This module provide the following datasets:
  1. User-graph of the given day. Format: user_id    followee_id
@@ -6,40 +6,19 @@ This module provide the following datasets:
  3. User-post-hashtag on the given day. Format: user_id     post_content    post_hashtags
 '''
 # import third-party module
-import numpy
-import theano
-from fuel.datasets import Dataset, IndexableDataset
-from fuel.streams import DataStream
-from fuel.schemes import IterationScheme, ConstantScheme, IndexScheme, ShuffledExampleScheme, SequentialScheme
-from fuel.transformers import Batch, Mapping, SortMapping, Unpack, Padding, Transformer
-from nltk.tokenize import TweetTokenizer
-
-#import system module
-import sys
-import os
-import os.path as path
-import re
-import codecs
-from collections import OrderedDict
-from abc import abstractmethod, ABCMeta
 import cPickle
-from picklable_itertools import iter_
-import logging
-import random
 import datetime
+import os.path as path
+from collections import OrderedDict
+
+from fuel.datasets import IndexableDataset
+from fuel.schemes import ConstantScheme, ShuffledExampleScheme, SequentialScheme
+from fuel.streams import DataStream
+from fuel.transformers import Batch, Mapping, SortMapping, Unpack, Padding
 
 
-#import self-defined module
-import base
-from base import *
-from base import _balanced_batch_helper
-from error import *
-from error import *
-import time
-from __builtin__ import super
-
-logging.basicConfig(level='INFO')
-logger = logging.getLogger(__name__)
+from util.dataset import *
+from util.dataset import _balanced_batch_helper
 
 
 class RUGD(object):
@@ -674,10 +653,10 @@ class UTHD(object):
         # Add mask
         for source in self.need_mask_sources.iteritems():
             stream = Padding(stream, mask_sources=[source[0]], mask_dtype=source[1])
-        stream = base.NegativeSample(stream,
-                                     [self.hashtag_dis_table],
-                                     sample_sources=["hashtag"],
-                                     sample_sizes=[self.config.hashtag_sample_size])
+        stream = dataset.NegativeSample(stream,
+                                        [self.hashtag_dis_table],
+                                        sample_sources=["hashtag"],
+                                        sample_sizes=[self.config.hashtag_sample_size])
         return stream
 
     def _construct_sequencial_stream(self, dataset):
@@ -689,10 +668,10 @@ class UTHD(object):
         # Add mask
         for source in self.need_mask_sources.iteritems():
             stream = Padding(stream, mask_sources=[source[0]], mask_dtype=source[1])
-        stream = base.NegativeSample(stream,
-                                     [self.hashtag_dis_table],
-                                     sample_sources=["hashtag"],
-                                     sample_sizes=[self.config.hashtag_sample_size])
+        stream = dataset.NegativeSample(stream,
+                                        [self.hashtag_dis_table],
+                                        sample_sources=["hashtag"],
+                                        sample_sizes=[self.config.hashtag_sample_size])
         return stream
 
     def _construct_hashtag_distribution(self, hashtags):
@@ -1024,10 +1003,10 @@ class SUTHD(object):
         # Add mask
         for source in self.need_mask_sources.iteritems():
             stream = Padding(stream, mask_sources=[source[0]], mask_dtype=source[1])
-        stream = base.NegativeSample(stream,
-                                     [self.hashtag_dis_table],
-                                     sample_sources=["hashtag"],
-                                     sample_sizes=[self.config.hashtag_sample_size])
+        stream = NegativeSample(stream,
+                                        [self.hashtag_dis_table],
+                                        sample_sources=["hashtag"],
+                                        sample_sizes=[self.config.hashtag_sample_size])
         return stream
 
     def _construct_sequencial_stream(self, dataset):
@@ -1039,10 +1018,10 @@ class SUTHD(object):
         # Add mask
         for source in self.need_mask_sources.iteritems():
             stream = Padding(stream, mask_sources=[source[0]], mask_dtype=source[1])
-        stream = base.NegativeSample(stream,
-                                     [self.hashtag_dis_table],
-                                     sample_sources=["hashtag"],
-                                     sample_sizes=[self.config.hashtag_sample_size])
+        stream = NegativeSample(stream,
+                                        [self.hashtag_dis_table],
+                                        sample_sources=["hashtag"],
+                                        sample_sizes=[self.config.hashtag_sample_size])
         return stream
 
     def _construct_hashtag_distribution(self, hashtags):

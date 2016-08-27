@@ -1,4 +1,4 @@
-﻿import numpy
+import numpy
 import theano
 import theano.tensor as tensor
 import blocks.bricks
@@ -7,6 +7,12 @@ from blocks.bricks import Tanh, Softmax, Linear, MLP, Identity, Rectifier
 from blocks.initialization import Constant, IsotropicGaussian, Orthogonal
 from blocks.bricks.base import application
 from blocks.bricks.recurrent import recurrent
+from blocks.algorithms import BasicMomentum, AdaDelta, RMSProp, Adam, CompositeRule, StepClipping, Momentum, Scale
+import numpy
+import theano
+import theano.tensor as tensor
+from blocks.bricks.lookup import LookupTable
+from blocks.initialization import IsotropicGaussian
 
 
 class WLSTM(LSTM):
@@ -15,12 +21,13 @@ class WLSTM(LSTM):
 
     Add weights on sequence inputs
     '''
+
     def __init__(self, *arg, **kwarg):
         super(WLSTM, self).__init__(*arg, **kwarg)
 
     @recurrent(sequences=['inputs', 'mask', "weights"], states=['states', 'cells'],
                contexts=[], outputs=['states', 'cells'])
-    def apply(self, inputs, weights, states = None, cells = None, mask = None):
+    def apply(self, inputs, weights, states=None, cells=None, mask=None):
         """Apply Long Short Term Memory transition with elements weighted
 
         Parameters
@@ -39,7 +46,7 @@ class WLSTM(LSTM):
             equations 7 to 10 for more details. The `inputs` are then split
             in this order: Input gates, forget gates, cells and output
             gates.
-        weights: 
+        weights:
             A 1D float array in the shape (batch,) denoting the weights of the elements
         mask : :class:`~tensor.TensorVariable`
             A 1D binary array in the shape (batch,) which is 1 if there is
@@ -56,8 +63,9 @@ class WLSTM(LSTM):
             Next cell activations of the network.
 
         """
+
         def slice_last(x, no):
-            return x[:, no*self.dim: (no+1)*self.dim]
+            return x[:, no * self.dim: (no + 1) * self.dim]
 
         activation = tensor.dot(states, self.W_state) + inputs
         in_gate = self.gate_activation.apply(
@@ -65,12 +73,12 @@ class WLSTM(LSTM):
         forget_gate = self.gate_activation.apply(
             slice_last(activation, 1) + cells * self.W_cell_to_forget)
         next_cells = (
-            forget_gate * cells*weights[:,None]+cells*(1-weights[:,None]) +
-            in_gate * self.activation.apply(slice_last(activation, 2))*weights[:,None])
+            forget_gate * cells * weights[:, None] + cells * (1 - weights[:, None]) +
+            in_gate * self.activation.apply(slice_last(activation, 2)) * weights[:, None])
         out_gate = self.gate_activation.apply(
             slice_last(activation, 3) + next_cells * self.W_cell_to_out)
         temp = self.activation.apply(next_cells)
-        next_states = out_gate * temp*weights[:,None] + (1-weights[:,None])*temp
+        next_states = out_gate * temp * weights[:, None] + (1 - weights[:, None]) * temp
 
         if mask:
             next_states = (mask[:, None] * next_states +
@@ -79,6 +87,7 @@ class WLSTM(LSTM):
                           (1 - mask[:, None]) * cells)
 
         return next_states, next_cells
+
 
 class MLSTM(object):
     '''
@@ -93,15 +102,16 @@ class MLSTM(object):
         is :class:`.Tanh`.
     gate_activation : :class:`.Brick` or None
         The brick to apply as activation for gates (input/output/forget).
-        If ``None`` a :class:`.Logistic` brick is used.    
+        If ``None`` a :class:`.Logistic` brick is used.
     times : int
         Times to apply LSTM on the sequence
     shared : bool
         If true, it will apply the same lstm on the input sequence for given times, otherwise
         it will apply "times" different lstm on the input sequence
-        
+
     '''
-    def __init__(self, times, dim, activation = None, shared = False, **kwargs):
+
+    def __init__(self, times, dim, activation=None, shared=False, **kwargs):
 
         self.times = times
         self.shared = shared
@@ -111,16 +121,16 @@ class MLSTM(object):
         self.biases_init = None
         self.model = LSTM
 
-    def apply(self, inputs, states = None, cells = None, mask = None):
+    def apply(self, inputs, states=None, cells=None, mask=None):
         h0 = states
         c0 = cells
         for time in range(self.times):
             if h0 is None:
-                lstm_hiddens, lstm_cells = self.rnns[time].apply(inputs = inputs, mask = mask)
+                lstm_hiddens, lstm_cells = self.rnns[time].apply(inputs=inputs, mask=mask)
             else:
-                lstm_hiddens, lstm_cells = self.rnns[time].apply(inputs = inputs, states = h0, cells = c0, mask = mask)
-            h0 = lstm_hiddens[-1,:,:]
-            c0 = lstm_cells[-1,:,:]   
+                lstm_hiddens, lstm_cells = self.rnns[time].apply(inputs=inputs, states=h0, cells=c0, mask=mask)
+            h0 = lstm_hiddens[-1, :, :]
+            c0 = lstm_cells[-1, :, :]
         return lstm_hiddens, lstm_cells
 
     def init(self):
@@ -130,10 +140,10 @@ class MLSTM(object):
         self.rnns = []
         if not self.shared:
             for time in range(self.times):
-                self.rnns.append(self.model(self.dim, self.activation, name = "lstm_%d" %time))
+                self.rnns.append(self.model(self.dim, self.activation, name="lstm_%d" % time))
         else:
-            self.rnns = [self.model(self.dim, self.activation, name = "lstm")]*self.times
-            
+            self.rnns = [self.model(self.dim, self.activation, name="lstm")] * self.times
+
     def initialize(self):
         self.init()
         if not self.shared:
@@ -146,23 +156,59 @@ class MLSTM(object):
             self.rnns[0].biases_init = self.biases_init
             self.rnns[0].initialize()
 
+
 class MWLSTM(MLSTM):
     '''
     Weighted Multiple Time LSTM
     '''
-    def __init__(self, times, dim, activation = None, gate_activation = None, shared = False, **kwargs):
-        super(MWLSTM, self).__init__(times, dim, activation, gate_activation, shared , **kwargs)
+
+    def __init__(self, times, dim, activation=None, gate_activation=None, shared=False, **kwargs):
+        super(MWLSTM, self).__init__(times, dim, activation, gate_activation, shared, **kwargs)
         self.model = WLSTM
 
-
-    def apply(self, inputs, weights = None, states = None, cells = None, mask = None):
+    def apply(self, inputs, weights=None, states=None, cells=None, mask=None):
         h0 = states
         c0 = cells
         for time in range(self.times):
             if h0 is None:
-                lstm_hiddens, lstm_cells = self.rnns[time].apply(inputs = inputs, weights = weights, mask = mask)
+                lstm_hiddens, lstm_cells = self.rnns[time].apply(inputs=inputs, weights=weights, mask=mask)
             else:
-                lstm_hiddens, lstm_cells = self.rnns[time].apply(inputs = inputs, states = h0, cells = c0, weights = weights, mask = mask)
-            h0 = lstm_hiddens[-1,:,:]
-            c0 = lstm_cells[-1,:,:]   
+                lstm_hiddens, lstm_cells = self.rnns[time].apply(inputs=inputs, states=h0, cells=c0, weights=weights,
+                                                                 mask=mask)
+            h0 = lstm_hiddens[-1, :, :]
+            c0 = lstm_cells[-1, :, :]
         return lstm_hiddens, lstm_cells
+
+
+class WAdaDelta(AdaDelta):
+    def __init__(self, decay_rate=0.95, epsilon=1e-6, special_para_names = None):
+        self.special_para_names = special_para_names
+        super(WAdaDelta, self).__init__(decay_rate=0.95, epsilon=1e-6)
+
+    def compute_step(self, parameter, previous_step):
+        if parameter.name in self.special_para_names:
+            step = 0.1*previous_step
+            update = []
+            return step, update
+        else:
+            return super(WAdaDelta, self).compute_step(parameter, previous_step)
+
+
+class Lookup(LookupTable):
+    def __init__(self, length, dim, **kwargs):
+        super(Lookup, self).__init__(length, dim, **kwargs)
+
+    def initialize_with_pretrain(self, index_value_pairs):
+        l = []
+        for i in range(min(100, len(index_value_pairs))):
+            l.append(index_value_pairs[i][1])
+        narray = numpy.asarray(l)
+        mean = numpy.mean(narray)
+        var = numpy.var(narray)
+        self.weights_init = IsotropicGaussian(mean=mean, std=numpy.sqrt(var))
+        self.initialize()
+        w = self.W.get_value()
+        for index, value in index_value_pairs:
+            w[index] = value
+        self.W.set_value(w)
+

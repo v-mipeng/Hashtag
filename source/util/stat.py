@@ -39,10 +39,3 @@ def sample_from_dist(num_by_id, sample_num = 1):
         sample_ids.append(id[index])
     return sample_ids
 
-if __name__ == "main":
-    num_by_id = zip(range(100),np.random.randint(low=1,high = 20, size = 100, dtype = "int64"))
-    import time
-    start = time.time()
-    sample_ids = sample_from_dist(num_by_id,1000)
-    end = time.time()
-    print(end-start)

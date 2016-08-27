@@ -3,7 +3,7 @@ import os
 import datetime
 
 
-from model.hashtag_model import MTLM, MTLDM, WLSTMM, BDLSTMM, BDLSTMM2, LUTHM
+from model import  LUTHM
 
 class BasicConfig:
     '''
@@ -24,14 +24,15 @@ class BasicConfig:
     sort_batch_count = 20
 
     # Step rule
-    step_rule = RMSProp(learning_rate=1.0, decay_rate=0.9,max_scaling=1e5)
+    step_rule = AdaDelta()
 
     # Measured by batches, e.g, valid every 1000 batches
-    valid_freq = 10000
-    save_freq = 10000
-    print_freq = 1000
-
-    # NLTK data path
+    # valid_freq = 10000
+    # save_freq = 10000
+    # print_freq = 1000
+    valid_freq = 1000
+    save_freq = 1000
+    print_freq = 100
 
 
 
@@ -58,6 +59,7 @@ class UGC(BasicConfig):
     user_graph_model_path = ""
 
     hashtag_embed_dim = 100
+
 
 class UTHC(BasicConfig):
     Model = LUTHM
@@ -89,14 +91,11 @@ class UTHC(BasicConfig):
     date_index = 3
 
     #sparse word threshold
-    # sparse_word_percent = 0.005
-    # sparse_hashtag_percent = 0.01
-    # sparse_user_percent = 0.005
     sparse_word_percent = 0.001
     sparse_hashtag_percent = 0.005
     sparse_user_percent = 0.005
     # date span for traing
-    duration = 1
+    duration = 30
 
 
     # region Model control parameters
