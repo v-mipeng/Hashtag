@@ -12,28 +12,27 @@ logging.basicConfig(level='INFO')
 logger = logging.getLogger('extensions.SaveLoadParams')
 
 class SaveLoadParams(SimpleExtension):
-    def __init__(self, path, model, dataset, **kwargs):
+    def __init__(self, load_from, save_to, model, dataset, **kwargs):
         super(SaveLoadParams, self).__init__(**kwargs)
 
-        self.path = path
+        self.load_from = load_from
+        self.save_to = save_to
         self.model = model
         self.dataset = dataset
 
     def do_save(self):
-        if not os.path.exists(os.path.dirname(self.path)):
-            os.makedirs(os.path.dirname(self.path))
-        with open(self.path, 'wb') as f:
-            logger.info('Saving parameters to %s...'%self.path)
-            dumper = cPickle.Pickler(f, protocol=cPickle.HIGHEST_PROTOCOL)
+        if not os.path.exists(os.path.dirname(self.save_to)):
+            os.makedirs(os.path.dirname(self.save_to))
+        with open(self.save_to, 'wb+') as f:
+            logger.info('Saving parameters to %s...'%self.save_to)
             # Save model and necessary dataset information
-            dumper.dump(self.model.get_parameter_values())
-            dumper.dump(self.dataset.get_parameter_to_save())
-
+            cPickle.dump(self.model.get_parameter_values(), f)
+            cPickle.dump(self.dataset.get_parameter_to_save(), f)
 
     def do_load(self):
         try:
-            with open(self.path, 'rb') as f:
-                logger.info('Loading parameters from %s...'%self.path)
+            with open(self.load_from, 'rb') as f:
+                logger.info('Loading parameters from %s...'%self.load_from)
                 last_model_params = cPickle.load(f)
                 last_dataset_params = cPickle.load(f)
                 self.do_initialize(last_model_params, last_dataset_params)
@@ -44,7 +43,7 @@ class SaveLoadParams(SimpleExtension):
         cur_dataset_params = self.dataset.get_parameter_to_save()
         cur_model_params = self.model.get_parameter_values()
         # Initialize LSTM params
-        for key, value in last_dataset_params.iteritems():
+        for key, value in last_model_params.iteritems():
             if key != "/hashtag_embed.W" and key != "/user_embed.W" and key != "word_embed.W":
                 cur_model_params[key] = value
 
@@ -74,7 +73,7 @@ class SaveLoadParams(SimpleExtension):
             if word in cur_word2index:
                 cur_word_embed[cur_word2index[word]] = last_word_embed[index]
         #endregion
-
+        self.model.set_parameter_values(cur_model_params)
         pass
 
     def do(self, which_callback, *args):
@@ -82,8 +81,3 @@ class SaveLoadParams(SimpleExtension):
             self.do_load()
         else:
             self.do_save()
-
-
-if __name__ == "__main__":
-    loader = SaveLoadParams(path = r"E:\projects\Hashtag\output\model\UTHC_lstm.pkl", model = None, dataset = None)
-    loader.do_load()

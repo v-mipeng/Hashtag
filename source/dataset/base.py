@@ -54,6 +54,8 @@ class NegativeSample(Transformer):
                 while len(neg_sample) < self.sample_sizes[i]:
                     ids = self.sample_id(self.dist_tables[i], self.sample_sizes[i])
                     for id in ids:
+                        if self.dist_tables[i][1][id] == 1.:
+                            raise ValueError('Cannot apply negtive sampling on {0} for its probability is 1.0'.format(id))
                         if len(numpy.where(source_example == id)[0]) == 0:
                             neg_sample.append(id)
                             if len(neg_sample) == self.sample_sizes[i]:

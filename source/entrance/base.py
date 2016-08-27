@@ -1,5 +1,25 @@
 import os
 import codecs
+import ntpath
+from blocks.extensions import SimpleExtension
+import logging
+
+
+logger = logging.getLogger('extensions.SaveLoadParams')
+
+class EpochMonitor(SimpleExtension):
+    def __init__(self, max_epoch, **kwargs):
+        super(EpochMonitor, self).__init__(after_epoch = True, **kwargs)
+
+        self.cur_epoch = 0
+        self.max_epoch = max_epoch
+
+    def do(self, which_callback, *args):
+        if which_callback == "after_epoch":
+            self.cur_epoch += 1
+            if self.cur_epoch >= self.max_epoch:
+                self.main_loop.status['epoch_interrupt_received'] = True
+
 
 def save_result(file_path, results):
     assert file_path is not None
@@ -11,7 +31,6 @@ def save_result(file_path, results):
         writer.write("%s\n" %"\t".join(map(str,result)))
     writer.close()
 
-import ntpath
 
 def get_in_out_files(input_path, output_path):
     input_files = []
@@ -36,3 +55,5 @@ def get_in_out_files(input_path, output_path):
     else:
         raise Exception("Test file can only be defined by a list of file paths or a directory paths!")
     return input_files, output_files
+
+

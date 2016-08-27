@@ -97,10 +97,7 @@ class LUTHM(object):
         max_index = pred.argmax(axis = 1)
         error_rate = tensor.neq(0, max_index).mean()
 
-        cg = ComputationGraph(cost)
-        # W = VariableFilter(roles = [WEIGHT])(cg.variables)
-        # print(W)
-        # Monitor values
+
         cost.name = 'cost'
         error_rate.name = 'error_rate'
         self.sgd_cost = cost

@@ -1,9 +1,7 @@
 from blocks.algorithms import BasicMomentum, AdaDelta, RMSProp, Adam, CompositeRule, StepClipping, Momentum, Scale
 import os
 import datetime
-from datetime import date, timedelta
 
-from model.step_rule import WAdaDelta
 
 from model.hashtag_model import MTLM, MTLDM, WLSTMM, BDLSTMM, BDLSTMM2, LUTHM
 
@@ -16,7 +14,8 @@ class BasicConfig:
     mode = "debug"
 
     #region raw dataset control parameters
-    project_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    cur_path = os.path.abspath(__file__)
+    project_dir = cur_path[0:cur_path.index('Hashtag')+len('Hashtag')]
 
     # GPU: "int32"; CPU: "int64"
     int_type = "int32"
@@ -25,12 +24,12 @@ class BasicConfig:
     sort_batch_count = 20
 
     # Step rule
-    step_rule = AdaDelta(decay_rate = 0.95, epsilon = 1e-06)
+    step_rule = RMSProp(learning_rate=1.0, decay_rate=0.9,max_scaling=1e5)
 
     # Measured by batches, e.g, valid every 1000 batches
-    valid_freq = 1000
-    save_freq = 1000
-    print_freq = 100
+    valid_freq = 10000
+    save_freq = 10000
+    print_freq = 1000
 
     # NLTK data path
 
@@ -66,7 +65,7 @@ class UTHC(BasicConfig):
     model_path = os.path.join(BasicConfig.project_dir, "output/model/UTHC_lstm.pkl")
 
     # If is directory, read all the files with extension ".txt"
-    train_path = os.path.join(BasicConfig.project_dir, "data/unit test/posts.txt")
+    train_path = os.path.join(BasicConfig.project_dir, "data/unit test/posts.pkl")
 
     test_path = os.path.join(BasicConfig.project_dir, "data/test/")
 
@@ -90,30 +89,24 @@ class UTHC(BasicConfig):
     date_index = 3
 
     #sparse word threshold
-    sparse_word_percent = 0.01
-
+    # sparse_word_percent = 0.005
+    # sparse_hashtag_percent = 0.01
+    # sparse_user_percent = 0.005
+    sparse_word_percent = 0.001
+    sparse_hashtag_percent = 0.005
+    sparse_user_percent = 0.005
     # date span for traing
-    duration = 3
+    duration = 1
 
-    # file path storing id to index dictionaries
-    data_dir = os.path.join(BasicConfig.project_dir, "output/table/")
-
-    user2index_path = os.path.join(data_dir, "user2index.txt")
-
-    word2index_path = os.path.join(data_dir, "word2index.txt")
-
-    word2freq_path = os.path.join(data_dir, "word2freq.txt")
-
-    hashtag2index_path = os.path.join(data_dir, "hashtag2index.txt")
 
     # region Model control parameters
-    user_embed_dim = 100
+    user_embed_dim = 50
 
     word_embed_dim = 100
 
     hashtag_sample_size = 10
 
-    lstm_dim = 256
+    lstm_dim = 100
 
     lstm_time = 1
 

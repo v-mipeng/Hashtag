@@ -1,14 +1,24 @@
+import os
+import numpy
+import datetime
+import codecs
+import cPickle
+from pymongo import  MongoClient
+from nltk.tokenize import TweetTokenizer
 from config.hashtag_config import UTHC
+
+
+from dataset import base
+
 
 class ScriptConfig(UTHC):
     host = '10.141.209.3'
     port = 27017
     database_name = 'tweet_contents'
     table_name = 'tweets'
+    train_path = os.path.join(UTHC.project_dir, "data/train.txt")
+    data_path = os.path.join(UTHC.project_dir, "data/tweet/tweet_2015.txt")
 
-
-from pymongo import  MongoClient
-import codecs
 
 class MongoDumper(object):
 
@@ -35,9 +45,11 @@ class MongoDumper(object):
         with codecs.open(save_to, "w+", encoding="ascii", errors="strict") as writer:
             count = 0
             for post in cursor:
-                count += 1
                 if count % 10000 == 0:
                     print("%d posts dumped" % count)
+                time = post.get('created_at')
+                if not time.endswith('2015'):
+                    continue
                 user_id = post.get('user').get('id')
                 # replace \n within post
                 text = post.get('text').replace("\n", " ")
@@ -45,8 +57,8 @@ class MongoDumper(object):
                 l = post.get('entities').get('hashtags')
                 for item in l:
                     hashtags.append(item.get('text'))
-                time = post.get('created_at')
                 self._save_one_sample(writer, user_id, text, hashtags, time)
+                count += 1
                 if count > sample_size:
                     break
 
@@ -59,7 +71,41 @@ class MongoDumper(object):
             pass
 
 
-from nltk.tokenize import TweetTokenizer
+class BUTHD(object):
+    '''
+       Basic dataset with user-text-time-hashtag information.
+
+       load dataset --> parse string type date --> provide samples of given date --> map user, hashtag, word to id -->
+       --> construct indexable dataset --> construct shuffled or sequencial fuel stream
+       '''
+
+    def __init__(self, data_path):
+        # Dictionary
+        self.index = 0
+        self.data_path  = data_path
+
+
+    def get_dataset(self):
+        '''
+        Prepare dataset
+        '''
+        print("Preparing dataset...")
+        raw_dataset = base.read_file_by_line(self.data_path, delimiter="\t", field_num=4, mode="debug")
+        for sample in raw_dataset:
+            sample[1] = sample[1].split(' ')
+            sample[3] = self._parse_date(sample[3])
+        return numpy.array(raw_dataset)
+        print("Done!")
+
+    def _parse_date(self, str_date):
+        '''
+        Parse string format date.
+
+        Reference: https://docs.python.org/2/library/time.html or http://strftime.org/
+        :return: A datetime.date object
+        '''
+        return datetime.datetime.strptime(str_date, "%a %b %d %H:%M:%S +0000 %Y").date()
+
 
 def tokenize_text(config, source_file, des_file):
     '''
@@ -98,30 +144,17 @@ def format2UTHD(config, read_from, save_to):
                     writer.write("{0}\t{1}\t{2}\t{3}\n".format(user_id, " ".join(tokens[0:index]+['#']), hashtag, time))
 
 
-from numpy.random import RandomState
+def pickle_dataset(config = None, read_from = "path_to_read", save_to = "path_to_save") :
+    dataset = BUTHD(read_from).get_dataset()
+    with open(save_to, 'wb+') as f:
+        cPickle.dump(dataset, f, protocol=cPickle.HIGHEST_PROTOCOL)
 
 
-def split_dataset(config,read_from, save_train_to, save_dev_to, save_test_to):
-    '''
-    Split dataset into training dataset, developing dataset and test dataset.
-    :param config: ScriptConfig object
-    :param read_from: original file
-    :param save_train_to: file path to save training dataset
-    :param save_dev_to:  file path to save developt dataset
-    :param save_test_to: file path to save test dataset
-    '''
-    train_portion = 1-config.dev_portion-config.test_portion
-    dev_up = train_portion+config.dev_portion
-    rvg = RandomState()
-    with open(save_train_to, 'w+') as train_writer:
-        with open(save_dev_to, 'w+') as dev_writer:
-            with open(save_test_to, 'w+') as test_writer:
-                with open(read_from, 'r') as reader:
-                    for line in reader:
-                        rv = rvg.uniform(size = 1)
-                        if rv<train_portion:
-                            train_writer.write(line)
-                        elif rv < dev_up:
-                            dev_writer.write(line)
-                        else:
-                            test_writer.write(line)
+
+if __name__ == "__main__":
+    from config.hashtag_config import UTHC
+    config = UTHC()
+    project_dir = config.project_dir
+    read_from = os.path.join(project_dir, "data/unit test/posts.uth")
+    save_to = os.path.join(project_dir, "data/unit test/posts_test.pkl")
+    pickle_dataset(read_from = read_from, save_to = save_to)
