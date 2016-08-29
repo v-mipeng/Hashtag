@@ -1,5 +1,5 @@
-from entrance import UTHE
+from entrance import UTHE, EUTHE
 
 if __name__ ==  "__main__":
-    entrance = UTHE()
+    entrance = EUTHE()
     entrance.train()

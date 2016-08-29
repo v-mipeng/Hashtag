@@ -59,7 +59,7 @@ class SaveLoadParams(SimpleExtension):
         cur_model_params = self.model.get_parameter_values()
         # Initialize LSTM params
         for key, value in last_model_params.iteritems():
-            if key != "/hashtag_embed.W" and key != "/user_embed.W" and key != "/word_embed.W":
+            if key != "/hashtag_embed.W" and key != "/user_embed.W" and key != "/word_embed.W" and key != '/char_embed.W':
                 cur_model_params[key] = value
 
         #region Initialize embedding params
@@ -87,6 +87,14 @@ class SaveLoadParams(SimpleExtension):
         for word, index in last_word2index.iteritems():
             if word in cur_word2index:
                 cur_word_embed[cur_word2index[word]] = last_word_embed[index]
+        # Initialize character embedding
+        last_char_embed = last_model_params['/char_embed.W']
+        cur_char_embed = cur_model_params['/char_embed.W']
+        last_char2index = last_dataset_params['char2index']
+        cur_char2index = cur_dataset_params['char2index']
+        for char, index in last_char2index.iteritems():
+            if char in cur_char2index:
+                cur_char_embed[cur_char2index[char]] = last_char_embed[index]
         #endregion
         self.model.set_parameter_values(cur_model_params)
         pass

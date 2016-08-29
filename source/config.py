@@ -3,7 +3,7 @@ import os
 import datetime
 
 
-from model import  LUTHM
+from model import  LUTHM, EUTHM, TUTHM
 
 class BasicConfig:
     '''
@@ -33,7 +33,6 @@ class BasicConfig:
     valid_freq = 1000
     save_freq = 1000
     print_freq = 100
-
 
 
 class UGC(BasicConfig):
@@ -109,4 +108,21 @@ class UTHC(BasicConfig):
 
     lstm_time = 1
 
+    sample_percent_for_test = 0.1
+
     # endregion
+
+
+class EUTHC(UTHC):
+    Model = EUTHM
+
+    user_name2id_path = os.path.join(BasicConfig.project_dir, "data/tweet/user_name2id.pkl")
+
+    # character embedding dimention
+    char_embed_dim = 10
+    # character reading dimention
+    url_rnn_dim = 10
+
+
+class TUTHC(UTHC):
+    Model = TUTHM

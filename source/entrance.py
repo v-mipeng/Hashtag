@@ -1,21 +1,22 @@
+#region Import
 import sys
 sys.path.append("..")
-
+import datetime
 from blocks.extensions import Printing, FinishAfter, ProgressBar
 from blocks.extensions.monitoring import DataStreamMonitoring, TrainingDataMonitoring
 from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.algorithms import GradientDescent
-
-from dataset import SUTHD
+import theano
+from blocks.graph import ComputationGraph
+from dataset import SUTHD, UTHD, EUTHD, TUTHD
 from util.entrance import SaveLoadParams
-
-from config import UTHC
-
+from config import UTHC, EUTHC, TUTHC
 from util.entrance import *
 import logging
+#endregion
 
-
+#region Logging
 try:
     from blocks_extras.extensions.plot import Plot
     plot_avail = False
@@ -27,7 +28,7 @@ logging.basicConfig(level='INFO')
 logger = logging.getLogger(__name__)
 
 sys.setrecursionlimit(2000000)
-
+#endregion
 
 class UTHE(object):
     '''
@@ -35,11 +36,14 @@ class UTHE(object):
     '''
 
     def __init__(self):
+        self._initialize()
+
+    def _initialize(self):
         self.config = UTHC
         self.dataset = SUTHD(self.config)
         self.model = None
 
-    def train(self):
+    def train(self, *args, **kwargs):
         '''
                 Train a user-text-hashtag lstm model with given training dataset or the default dataset which is defined with config.train_path
 
@@ -62,12 +66,13 @@ class UTHE(object):
             save_to = "{0}_{1}.pkl".format(model_base_name, str(date))
             self.model = self.config.Model(self.config, self.dataset)  # with word2id
 
-            cg = Model(self.model.sgd_cost)
+            cg = Model(self.model.cg_generator)
 
-            algorithm = GradientDescent(cost=self.model.sgd_cost,
+            algorithm = GradientDescent(cost=self.model.cg_generator,
                                         step_rule=self.config.step_rule,
                                         parameters=cg.parameters,
                                         on_unused_sources='ignore')
+
 
             if plot_avail:
                 extensions = [FinishAfter(after_n_epochs=1),
@@ -81,7 +86,7 @@ class UTHE(object):
             else:
                 extensions = [
                     TrainingDataMonitoring(
-                        [v for l in self.model.monitor_vars for v in l],
+                        [v for l in self.model.monitor_train_vars for v in l],
                         prefix='train',
                         every_n_batches=self.config.print_freq)
                 ]
@@ -96,7 +101,7 @@ class UTHE(object):
                                    save_to = save_to,
                                    model=cg,
                                    dataset= self.dataset,
-                                   before_training=True,  # if exist model, the program will load it first
+                                   before_training=False,  # if exist model, the program will load it first
                                    after_training=True,
                                    after_epoch=True,
                                    every_n_batches=self.config.save_freq)
@@ -104,16 +109,17 @@ class UTHE(object):
             if self.config.valid_freq != -1:
                 extensions += [
                     DataStreamMonitoring(
-                        [v for l in self.model.monitor_vars_valid for v in l],
+                        [v for l in self.model.monitor_valid_vars for v in l],
                         valid_stream,
                         before_first_epoch=True,
                         prefix='valid',
+                        after_epoch=True,
                         every_n_batches=self.config.valid_freq),
                 ]
             if count < 10:
-                extensions += [EpochMonitor(2)]
-            else:
                 extensions += [EpochMonitor(10)]
+            else:
+                extensions += [EpochMonitor(30)]
             count += 1
             main_loop = MainLoop(
                 model=cg,
@@ -127,8 +133,64 @@ class UTHE(object):
             load_from = "{0}_{1}.pkl".format(model_base_name, str(date))
             logger.info("Training model on date:{0} finished!".format(date))
 
-    def test(self, test_path = None, test_result_path = None, model_path = None):
+    def test(self, *args, **kwargs):
         raise NotImplementedError('subclasses must override test()!')
 
-    def predict(self, predict_path = None, predict_result_path = None, model_path = None):
+    def predict(self, *args, **kwargs):
         raise NotImplementedError('subclasses must override predict()!')
+
+class EUTHE(UTHE):
+
+    def __init__(self):
+        super(EUTHE,self).__init__()
+
+    def _initialize(self):
+        self.config = EUTHC
+        self.dataset = EUTHD(self.config)
+        self.model = None
+
+class TUTHE(UTHE):
+
+    def __init__(self):
+        super(TUTHE,self).__init__()
+
+    def _initialize(self):
+        self.config = TUTHC()
+        self.config.model_path = os.path.join(self.config.project_dir, "output/model/UTHC_lstm.pkl")
+        self.dataset = TUTHD(self.config)
+        self.model = None
+
+    def test(self, date):
+        load_from = self.config.model_path
+        test_stream = self.dataset.get_shuffled_stream_by_date(date, update=False)
+        # Build model
+        self.model = self.config.Model(self.config, self.dataset)  # with word2id
+
+        cg = Model(self.model.cg_generator)
+        initializer = SaveLoadParams(load_from=load_from,
+                                   save_to = load_from,
+                                   model=cg,
+                                   dataset= self.dataset,
+                                   before_training=True)
+        initializer.do_load()
+        inputs = cg.inputs
+        top1_recall = 0.
+        top10_recall = 0.
+        f_top1 = theano.function(inputs, self.model.top1_recall)
+        f_top10 = theano.function(inputs, self.model.top10_recall)
+        data_size = 0
+        for batch in test_stream.get_epoch_iterator():
+            data_size += batch[0].shape[0]
+            stream_inputs = []
+            for input in inputs:
+                stream_inputs.append(batch[test_stream.sources.index(input.name)])
+            top1_recall += f_top1(*tuple(stream_inputs))*stream_inputs[0].shape[0]
+            top10_recall += f_top10(*tuple(stream_inputs))*stream_inputs[0].shape[0]
+        top1_recall /= data_size
+        top10_recall /= data_size
+        print("top1_recall:{0}\n".format(top1_recall))
+        print("top10_recall:{0}\n".format(top10_recall))
+
+if __name__ ==  "__main__":
+    entrance = TUTHE()
+    entrance.test(datetime.date(2015,2,8))
