@@ -3,7 +3,7 @@ import os
 import datetime
 
 
-from model import  LUTHM, EUTHM, TUTHM
+from model import  LUTHM, EUTHM, TUTHM, AUTHM
 
 class BasicConfig:
     '''
@@ -27,12 +27,10 @@ class BasicConfig:
     step_rule = AdaDelta()
 
     # Measured by batches, e.g, valid every 1000 batches
-    # valid_freq = 10000
-    # save_freq = 10000
-    # print_freq = 1000
-    valid_freq = 1000
-    save_freq = 1000
     print_freq = 100
+    save_freq = 1000
+    # Measured by epoch
+    valid_freq = 2
 
 
 class UGC(BasicConfig):
@@ -96,6 +94,7 @@ class UTHC(BasicConfig):
     # date span for traing
     duration = 30
 
+    begin_date = None
 
     # region Model control parameters
     user_embed_dim = 50
@@ -113,6 +112,10 @@ class UTHC(BasicConfig):
     # endregion
 
 
+class AUTHC(UTHC):
+    Model = AUTHM
+
+
 class EUTHC(UTHC):
     Model = EUTHM
 
@@ -122,6 +125,16 @@ class EUTHC(UTHC):
     char_embed_dim = 10
     # character reading dimention
     url_rnn_dim = 10
+
+
+class FUTHC(UTHC):
+    '''Forget Extended User Text Hashtag Config'''
+    hashtag_forget_rate = 0.95
+
+
+class FEUTHC(EUTHC):
+    '''Forget Extended User Text Hashtag Config'''
+    hashtag_forget_rate = 0.95
 
 
 class TUTHC(UTHC):

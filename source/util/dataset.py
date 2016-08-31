@@ -4,7 +4,7 @@ import codecs
 import ntpath
 import os
 import sys
-
+import theano
 import numpy
 from fuel.transformers import Transformer
 from nltk.tokenize import TweetTokenizer
@@ -121,12 +121,13 @@ class SparseIndex(Transformer):
             data_stream, produces_examples=False, **kwargs)
         self.sparse_sources, self.sparse_idxes = zip(*sparse_pairs)
 
-
     @property
     def sources(self):
         sources = []
         for source in self.data_stream.sources:
             sources.append(source)
+            if source in self.sparse_sources:
+                sources.append(source+"_sparse_mask")
             if source in self.sparse_idxes:
                 sources.append(source + '_left_idx')
                 sources.append(source + '_right_idx')
@@ -137,7 +138,14 @@ class SparseIndex(Transformer):
         for source, source_batch in zip(self.data_stream.sources, batch):
             if source in self.sparse_sources:
                 # turn list of ndarray to one ndarray
-                new_batch.append(numpy.concatenate(source_batch,axis = 0))
+                tmp = numpy.concatenate(source_batch, axis=0)
+                if len(tmp) > 0:
+                    mask = numpy.ones(len(tmp), dtype=theano.config.floatX)
+                else:
+                    tmp = numpy.array([0], dtype=source_batch.dtype)
+                    mask = numpy.zeros(1, dtype=theano.config.floatX)
+                new_batch.append(tmp)
+                new_batch.append(mask)
             elif source in self.sparse_idxes:
                 new_batch.append(source_batch)
                 i = 0
@@ -147,8 +155,11 @@ class SparseIndex(Transformer):
                     left_idxes += [i]*len(idxes)
                     right_idxes += idxes.tolist()
                     i += 1
-                new_batch.append(numpy.array(left_idxes, dtype=source_batch.dtype))
-                new_batch.append(numpy.array(right_idxes, dtype=source_batch.dtype))
+                if len(left_idxes) == 0:
+                    left_idxes=[0]
+                    right_idxes=[0]
+                new_batch.append(numpy.array(left_idxes, dtype=source_batch[0].dtype))
+                new_batch.append(numpy.array(right_idxes, dtype=source_batch[0].dtype))
             else:
                 new_batch.append(source_batch)
         return tuple(new_batch)
@@ -169,6 +180,7 @@ class CharEmbedding(Transformer):
             sources.append(source)
             if source in self.char_source:
                 sources.append(source + '_mask')
+                sources.append(source + '_sparse_mask')
             elif source in self.char_idx_source:
                 sources.append(source + '_left_idx')
                 sources.append(source + '_right_idx')
@@ -183,11 +195,18 @@ class CharEmbedding(Transformer):
             if source in self.char_source:
                 # turn list of ndarray to one ndarray
                 char_batch = []
-                for sample in source_batch:
-                    char_batch += sample
-                padded_batch, batch_mask = self._padding(numpy.array(char_batch))
+                for item in source_batch:
+                    char_batch += item
+                if len(char_batch) == 0:
+                    padded_batch = numpy.array([0,0], dtype="int32")[:,None]
+                    batch_mask = numpy.array([1.,1.], dtype=theano.config.floatX)[:, None]
+                    mask = numpy.zeros(1, dtype=theano.config.floatX)
+                else:
+                    padded_batch, batch_mask = self._padding(numpy.asarray(char_batch))
+                    mask = numpy.ones(len(padded_batch), dtype=theano.config.floatX)
                 new_batch.append(padded_batch)
                 new_batch.append(batch_mask)
+                new_batch.append(mask)
             elif source in self.char_idx_source:
                 new_batch.append(source_batch)
                 i = 0
@@ -197,35 +216,36 @@ class CharEmbedding(Transformer):
                     left_idxes += [i] * len(idxes)
                     right_idxes += idxes.tolist()
                     i += 1
-                new_batch.append(numpy.array(left_idxes, dtype=source_batch.dtype))
-                new_batch.append(numpy.array(right_idxes, dtype=source_batch.dtype))
+                if len(left_idxes) == 0:
+                    left_idxes = [0]
+                    right_idxes = [0]
+                new_batch.append(numpy.array(left_idxes, dtype=source_batch[0].dtype))
+                new_batch.append(numpy.array(right_idxes, dtype=source_batch[0].dtype))
             else:
                 new_batch.append(source_batch)
         return tuple(new_batch)
 
     def _padding(self, source_batch):
-        if len(source_batch) == 0:
-            return numpy.array(source_batch), numpy.array([], dtype=self.char_mask_dtype)
-        else:
-            shapes = [numpy.asarray(sample).shape for sample in source_batch]
-            lengths = [shape[0] for shape in shapes]
-            max_sequence_length = max(lengths)
-            rest_shape = shapes[0][1:]
-            if not all([shape[1:] == rest_shape for shape in shapes]):
-                raise ValueError("All dimensions except length must be equal")
-            dtype = numpy.asarray(source_batch[0]).dtype
+        shapes = [numpy.asarray(sample).shape for sample in source_batch]
+        lengths = [shape[0] for shape in shapes]
+        max_sequence_length = max(lengths)
+        rest_shape = shapes[0][1:]
+        if not all([shape[1:] == rest_shape for shape in shapes]):
+            raise ValueError("All dimensions except length must be equal")
+        dtype = numpy.asarray(source_batch[0]).dtype
 
-            padded_batch = numpy.zeros(
-                (len(source_batch), max_sequence_length) + rest_shape,
-                dtype=dtype)
-            for i, sample in enumerate(source_batch):
-                padded_batch[i, :len(sample)] = sample
+        padded_batch = numpy.zeros(
+            (len(source_batch), max_sequence_length) + rest_shape,
+            dtype=dtype)
+        for i, sample in enumerate(source_batch):
+            padded_batch[i, :len(sample)] = sample
 
-            mask = numpy.zeros((len(source_batch), max_sequence_length),
-                               self.char_mask_dtype)
-            for i, sequence_length in enumerate(lengths):
-                mask[i, :sequence_length] = 1
-            return padded_batch, mask
+        mask = numpy.zeros((len(source_batch), max_sequence_length),
+                           self.char_mask_dtype)
+        for i, sequence_length in enumerate(lengths):
+            mask[i, :sequence_length] = 1
+        return padded_batch, mask
+
 
 def split_train_valid(data , valid_portion):
     '''

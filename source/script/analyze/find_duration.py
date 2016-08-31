@@ -13,7 +13,7 @@ import datetime
 import numpy as np
 
 from config import UTHC
-from dataset import  BUTHD, SUTHD
+from dataset import  RUTHD, SUTHD
 
 def get_distribution(tags):
     assert tags is not None
@@ -38,7 +38,7 @@ def get_coverage(train_dist, test_dist):
     return 1.0*com_total/test_total
 
 def get_kl_distances(config):
-    dataset = BUTHD(config)
+    dataset = RUTHD(config)
     dataset.prepare(config.train_path)
     fields = zip(*dataset.raw_dataset)
     hashtags = np.array(fields[config.hashtag_index])

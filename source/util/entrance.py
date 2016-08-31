@@ -1,12 +1,15 @@
 import os
 import codecs
 import ntpath
-from blocks.extensions import SimpleExtension
 import logging
 import logging
 import cPickle
-
+import theano.tensor as tensor
+import theano
 from blocks.extensions import SimpleExtension
+from blocks.theano_expressions import l2_norm
+from blocks.algorithms import Scale
+from picklable_itertools.extras import equizip
 
 logger = logging.getLogger('extensions.SaveLoadParams')
 
@@ -25,10 +28,9 @@ class EpochMonitor(SimpleExtension):
                 self.main_loop.status['epoch_interrupt_received'] = True
 
 
-
-class SaveLoadParams(SimpleExtension):
-    def __init__(self, load_from, save_to, model, dataset, **kwargs):
-        super(SaveLoadParams, self).__init__(**kwargs)
+class BasicSaveLoadParams(SimpleExtension):
+    def __init__(self, load_from, save_to, model, dataset,  **kwargs):
+        super(BasicSaveLoadParams, self).__init__(**kwargs)
 
         self.load_from = load_from
         self.save_to = save_to
@@ -87,6 +89,54 @@ class SaveLoadParams(SimpleExtension):
         for word, index in last_word2index.iteritems():
             if word in cur_word2index:
                 cur_word_embed[cur_word2index[word]] = last_word_embed[index]
+        #endregion
+        self.model.set_parameter_values(cur_model_params)
+
+    def do(self, which_callback, *args):
+        if which_callback == 'before_training':
+            self.do_load()
+        else:
+            self.do_save()
+
+
+class ExtendSaveLoadParams(BasicSaveLoadParams):
+    def __init__(self, load_from, save_to, model, dataset, **kwargs):
+        super(ExtendSaveLoadParams, self).__init__(load_from, save_to, model, dataset,**kwargs)
+
+
+    def do_initialize(self, last_model_params, last_dataset_params):
+        cur_dataset_params = self.dataset.get_parameter_to_save()
+        cur_model_params = self.model.get_parameter_values()
+        # Initialize LSTM params
+        for key, value in last_model_params.iteritems():
+            if key != "/hashtag_embed.W" and key != "/user_embed.W" and key != "/word_embed.W" and key != '/char_embed.W':
+                cur_model_params[key] = value
+
+        #region Initialize embedding params
+        # Initialize hashtag embedding
+        last_hashtag_embed = last_model_params['/hashtag_embed.W']
+        cur_hashtag_embed = cur_model_params['/hashtag_embed.W']
+        last_hashtag2index = last_dataset_params['hashtag2index']
+        cur_hashtag2index = cur_dataset_params['hashtag2index']
+        for hashtag, index in last_hashtag2index.iteritems():
+            if hashtag in cur_hashtag2index:
+                cur_hashtag_embed[cur_hashtag2index[hashtag]] = last_hashtag_embed[index]
+        # Initialize user embedding
+        last_user_embed = last_model_params['/user_embed.W']
+        cur_user_embed = cur_model_params['/user_embed.W']
+        last_user2index = last_dataset_params['user2index']
+        cur_user2index = cur_dataset_params['user2index']
+        for user, index in last_user2index.iteritems():
+            if user in cur_user2index:
+                cur_user_embed[cur_user2index[user]] = last_user_embed[index]
+        # Initialize word embedding
+        last_word_embed = last_model_params['/word_embed.W']
+        cur_word_embed = cur_model_params['/word_embed.W']
+        last_word2index = last_dataset_params['word2index']
+        cur_word2index = cur_dataset_params['word2index']
+        for word, index in last_word2index.iteritems():
+            if word in cur_word2index:
+                cur_word_embed[cur_word2index[word]] = last_word_embed[index]
         # Initialize character embedding
         last_char_embed = last_model_params['/char_embed.W']
         cur_char_embed = cur_model_params['/char_embed.W']
@@ -97,14 +147,99 @@ class SaveLoadParams(SimpleExtension):
                 cur_char_embed[cur_char2index[char]] = last_char_embed[index]
         #endregion
         self.model.set_parameter_values(cur_model_params)
-        pass
 
-    def do(self, which_callback, *args):
-        if which_callback == 'before_training':
-            self.do_load()
-        else:
-            self.do_save()
 
+class ForgetExtendSaveLoadParams(BasicSaveLoadParams):
+    def __init__(self, load_from, save_to, model, dataset, hashtag_forget_rate = 1, **kwargs):
+        super(ForgetExtendSaveLoadParams, self).__init__(load_from, save_to, model, dataset,**kwargs)
+        self.hashtag_forget_rate = hashtag_forget_rate
+
+
+    def do_initialize(self, last_model_params, last_dataset_params):
+        cur_dataset_params = self.dataset.get_parameter_to_save()
+        cur_model_params = self.model.get_parameter_values()
+        # Initialize LSTM params
+        for key, value in last_model_params.iteritems():
+            if key != "/hashtag_embed.W" and key != "/user_embed.W" and key != "/word_embed.W" and key != '/char_embed.W':
+                cur_model_params[key] = value
+
+        #region Initialize embedding params
+        # Initialize hashtag embedding
+        last_hashtag_embed = last_model_params['/hashtag_embed.W']
+        cur_hashtag_embed = cur_model_params['/hashtag_embed.W']
+        last_hashtag2index = last_dataset_params['hashtag2index']
+        cur_hashtag2index = cur_dataset_params['hashtag2index']
+        for hashtag, index in last_hashtag2index.iteritems():
+            if hashtag in cur_hashtag2index:
+                cur_hashtag_embed[cur_hashtag2index[hashtag]] = last_hashtag_embed[index]*self.hashtag_forget_rate
+        # Initialize user embedding
+        last_user_embed = last_model_params['/user_embed.W']
+        cur_user_embed = cur_model_params['/user_embed.W']
+        last_user2index = last_dataset_params['user2index']
+        cur_user2index = cur_dataset_params['user2index']
+        for user, index in last_user2index.iteritems():
+            if user in cur_user2index:
+                cur_user_embed[cur_user2index[user]] = last_user_embed[index]
+        # Initialize word embedding
+        last_word_embed = last_model_params['/word_embed.W']
+        cur_word_embed = cur_model_params['/word_embed.W']
+        last_word2index = last_dataset_params['word2index']
+        cur_word2index = cur_dataset_params['word2index']
+        for word, index in last_word2index.iteritems():
+            if word in cur_word2index:
+                cur_word_embed[cur_word2index[word]] = last_word_embed[index]
+        # Initialize character embedding
+        last_char_embed = last_model_params['/char_embed.W']
+        cur_char_embed = cur_model_params['/char_embed.W']
+        last_char2index = last_dataset_params['char2index']
+        cur_char2index = cur_dataset_params['char2index']
+        for char, index in last_char2index.iteritems():
+            if char in cur_char2index:
+                cur_char_embed[cur_char2index[char]] = last_char_embed[index]
+        #endregion
+        self.model.set_parameter_values(cur_model_params)
+
+
+class ForgetSaveLoadParams(BasicSaveLoadParams):
+    def __init__(self, load_from, save_to, model, dataset, hashtag_forget_rate = 1, **kwargs):
+        super(ForgetSaveLoadParams, self).__init__(load_from, save_to, model, dataset,**kwargs)
+        self.hashtag_forget_rate = hashtag_forget_rate
+
+    def do_initialize(self, last_model_params, last_dataset_params):
+        cur_dataset_params = self.dataset.get_parameter_to_save()
+        cur_model_params = self.model.get_parameter_values()
+        # Initialize LSTM params
+        for key, value in last_model_params.iteritems():
+            if key != "/hashtag_embed.W" and key != "/user_embed.W" and key != "/word_embed.W" and key != '/char_embed.W':
+                cur_model_params[key] = value
+
+        #region Initialize embedding params
+        # Initialize hashtag embedding
+        last_hashtag_embed = last_model_params['/hashtag_embed.W']
+        cur_hashtag_embed = cur_model_params['/hashtag_embed.W']
+        last_hashtag2index = last_dataset_params['hashtag2index']
+        cur_hashtag2index = cur_dataset_params['hashtag2index']
+        for hashtag, index in last_hashtag2index.iteritems():
+            if hashtag in cur_hashtag2index:
+                cur_hashtag_embed[cur_hashtag2index[hashtag]] = last_hashtag_embed[index]*self.hashtag_forget_rate
+        # Initialize user embedding
+        last_user_embed = last_model_params['/user_embed.W']
+        cur_user_embed = cur_model_params['/user_embed.W']
+        last_user2index = last_dataset_params['user2index']
+        cur_user2index = cur_dataset_params['user2index']
+        for user, index in last_user2index.iteritems():
+            if user in cur_user2index:
+                cur_user_embed[cur_user2index[user]] = last_user_embed[index]
+        # Initialize word embedding
+        last_word_embed = last_model_params['/word_embed.W']
+        cur_word_embed = cur_model_params['/word_embed.W']
+        last_word2index = last_dataset_params['word2index']
+        cur_word2index = cur_dataset_params['word2index']
+        for word, index in last_word2index.iteritems():
+            if word in cur_word2index:
+                cur_word_embed[cur_word2index[word]] = last_word_embed[index]
+        #endregion
+        self.model.set_parameter_values(cur_model_params)
 
 
 def save_result(file_path, results):
