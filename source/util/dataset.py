@@ -166,11 +166,10 @@ class SparseIndex(Transformer):
 
 
 class CharEmbedding(Transformer):
-    def __init__(self, data_stream, char_source, char_idx_source, char_mask_dtype, **kwargs):
+    def __init__(self, data_stream, char_source, char_idx_source, **kwargs):
         super(CharEmbedding, self).__init__(data_stream=data_stream, produces_examples = False, **kwargs)
         self.char_source = char_source
         self.char_idx_source = char_idx_source
-        self.char_mask_dtype = char_mask_dtype
 
 
     @property
@@ -188,7 +187,6 @@ class CharEmbedding(Transformer):
                 pass
         return tuple(sources)
 
-
     def transform_batch(self, batch):
         new_batch = []
         for source, source_batch in zip(self.data_stream.sources, batch):
@@ -198,8 +196,8 @@ class CharEmbedding(Transformer):
                 for item in source_batch:
                     char_batch += item
                 if len(char_batch) == 0:
-                    padded_batch = numpy.array([0,0], dtype="int32")[:,None]
-                    batch_mask = numpy.array([1.,1.], dtype=theano.config.floatX)[:, None]
+                    padded_batch = numpy.array([[0,0]], dtype="int32")
+                    batch_mask = numpy.array([[1.,1.]], dtype=theano.config.floatX)
                     mask = numpy.zeros(1, dtype=theano.config.floatX)
                 else:
                     padded_batch, batch_mask = self._padding(numpy.asarray(char_batch))
@@ -241,7 +239,7 @@ class CharEmbedding(Transformer):
             padded_batch[i, :len(sample)] = sample
 
         mask = numpy.zeros((len(source_batch), max_sequence_length),
-                           self.char_mask_dtype)
+                           dtype = theano.config.floatX)
         for i, sequence_length in enumerate(lengths):
             mask[i, :sequence_length] = 1
         return padded_batch, mask

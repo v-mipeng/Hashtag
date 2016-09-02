@@ -9,9 +9,9 @@ from blocks.model import Model
 from blocks.algorithms import GradientDescent
 import theano
 from blocks.graph import ComputationGraph
-from dataset import SUTHD, UTHD, EUTHD, TUTHD, FUTHD, FEUTHD, AUTHD
+from dataset import SUTHD, NUTHD, TUTHD, FUTHD
 from util.entrance import *
-from config import UTHC, EUTHC, TUTHC, FUTHC, FEUTHC, AUTHC
+from config import UTHC, EUTHC, TUTHC, FUTHC
 from util.entrance import *
 import logging
 #endregion
@@ -44,7 +44,8 @@ class UTHE(object):
             self.config = UTHC
         else:
             self.config = config
-        self.dataset = SUTHD(self.config)
+        self.dataset = NUTHD(self.config)
+        self.iter_dataset = SUTHD(self.config, self.dataset)
         self.model = None
         self.model_save_loader = BasicSaveLoadParams
 
@@ -66,8 +67,8 @@ class UTHE(object):
         load_from = self.config.model_path
         model_base_name, _= os.path.splitext(self.config.model_path)
         count = 0
-        for train_stream, valid_stream, date in self.dataset:
-            print("Train on {0} hashtags and {1} samples on date:{2}\n".format(len(self.dataset.hashtag2freq), sum(self.dataset.hashtag2freq.values()), date))
+        for train_stream, valid_stream, date in self.iter_dataset:
+            print("Train on {0} hashtags on date:{1}\n".format(len(self.dataset.hashtag2index.keys()), date))
             # Build model
             save_to = "{0}_{1}.pkl".format(model_base_name, str(date))
             self.model = self.config.Model(self.config, self.dataset)  # with word2id
@@ -96,37 +97,44 @@ class UTHE(object):
                         prefix='train',
                         every_n_batches=self.config.print_freq)
                 ]
-
-            extensions += [
-                DataStreamMonitoring(
-                    [v for l in self.model.monitor_valid_vars for v in l],
-                    valid_stream,
-                    prefix='valid',
-                    before_first_epoch = False,
-                    every_n_epochs=self.config.save_freq)
-            ]
-
-            if self.config.save_freq is not None:
-                extensions += [
-                    self.model_save_loader(load_from=load_from,
+            saver_loader = self.model_save_loader(load_from=load_from,
                                    save_to = save_to,
                                    model=cg,
-                                   dataset= self.dataset,
-                                   before_training=True,
-                                   after_training=True,
-                                   after_epoch=True,
-                                   every_n_batches=self.config.save_freq)
-                ]
+                                   dataset= self.dataset)
+            saver_loader.do_load()
+
+            extensions += [
+                EvaluatorWithEarlyStop(
+                    coverage=1.,
+                    variables = [v for l in self.model.monitor_valid_vars for v in l],
+                    monitor_variable=self.model.monitor_valid_vars[0][0],
+                    data_stream=valid_stream,
+                    saver=saver_loader,
+                    prefix='valid',
+                    every_n_epochs=self.config.valid_freq)
+            ]
+
+            # if self.config.save_freq is not None:
+            #     extensions += [
+            #         self.model_save_loader(load_from=load_from,
+            #                        save_to = save_to,
+            #                        model=cg,
+            #                        dataset= self.dataset,
+            #                        before_training=True,
+            #                        after_training=True,
+            #                        after_epoch=True,
+            #                        every_n_batches=self.config.save_freq)
+            #     ]
 
             extensions += [
                 Printing(every_n_batches=self.config.print_freq, after_epoch=True),
                 ProgressBar()
             ]
 
-            if count < 10:
-                extensions += [EpochMonitor(10)]
-            else:
-                extensions += [EpochMonitor(30)]
+            # if count < 10:
+            #     extensions += [EpochMonitor(10)]
+            # else:
+            #     extensions += [EpochMonitor(30)]
             count += 1
             main_loop = MainLoop(
                 model=cg,
@@ -147,57 +155,40 @@ class UTHE(object):
         raise NotImplementedError('subclasses must override predict()!')
 
 
-class EUTHE(UTHE):
-    #TODO: Debug the model
+class FUTHE(UTHE):
     def __init__(self, config = None):
-        super(EUTHE,self).__init__(config)
+        super(FUTHE, self).__init__(config)
 
     def _initialize(self, config = None):
         if config is None:
-            self.config = EUTHC
+            self.config = FUTHC
         else:
             self.config = config
-        self.dataset = EUTHD(self.config)
+        self.dataset = FUTHD(self.config)
+        self.iter_dataset = SUTHD(self.config, self.dataset)
         self.model = None
         self.model_save_loader = ExtendSaveLoadParams
 
     def train(self, *args, **kwargs):
-        #region Test
-        # load_from = self.config.model_path
-        # model_base_name, _= os.path.splitext(self.config.model_path)
-        # count = 0
-        # for train_stream, valid_stream, date in self.dataset:
-        #     print("Train on {0} hashtags and {1} samples on date:{2}\n".format(len(self.dataset.hashtag2freq), sum(self.dataset.hashtag2freq.values()), date))
-            # # Build model
-            # save_to = "{0}_{1}.pkl".format(model_base_name, str(date))
-            # self.model = self.config.Model(self.config, self.dataset)  # with word2id
-            #
-            # cg = Model(self.model.text_vec)
-            # # algorithm = GradientDescent(cost=self.model.cg_generator,
-            # #                             step_rule=self.config.step_rule,
-            # #                             parameters=cg.parameters,
-            # #                             on_unused_sources='ignore')
-            # # algorithm.initialize()
-            # inputs = cg.inputs
-            # f = theano.function(inputs, self.model.text_vec)
-            # cg = Model(self.model.hashtag_word)
-            # f2 = theano.function([self.model.hashtag_word], self.model.hashtag_word.shape[0])
-            # for data in train_stream.get_epoch_iterator():
-            #     stream_data = []
-            #     for input in inputs:
-            #         stream_data.append(data[train_stream.sources.index(input.name)])
-            #     print(f2(data[train_stream.sources.index(self.model.hashtag_word.name)]))
-            #     print(f(*tuple( stream_data)).sum())
-            #     # if raw_input('continue?y|n:') == 'n':
-            #     #     sys.exit(1)
+        '''
+                Train a user-text-hashtag lstm model with given training dataset or the default dataset which is defined with config.train_path
 
-        #endregion
+                @param train_path: path of the training dataset, file or directory, default: config.train_path
+                                   File foramt: Mention TAB True_label TAB Context
 
+                @param valid_portion: a float value define the portion of validation, default: config.multi_time_lstm.MLTC.valid_portion
+                                      size of validation dataset: all_the_sample_num * valid_portion
+
+                @param valid_path: path of the validation dataset, file or directory, if given, the valid_portion will be 0.
+
+
+                @param model_path: path to dump the trained model, default: config.multi_time_lstm module.model_path
+                '''
         load_from = self.config.model_path
-        model_base_name, _= os.path.splitext(self.config.model_path)
+        model_base_name, _ = os.path.splitext(self.config.model_path)
         count = 0
-        for train_stream, valid_stream, date in self.dataset:
-            print("Train on {0} hashtags and {1} samples on date:{2}\n".format(len(self.dataset.hashtag2freq), sum(self.dataset.hashtag2freq.values()), date))
+        for train_stream, valid_stream, date in self.iter_dataset:
+            print("Train on {0} hashtags on date:{1}\n".format(len(self.dataset.hashtag2index.keys()), date))
             # Build model
             save_to = "{0}_{1}.pkl".format(model_base_name, str(date))
             self.model = self.config.Model(self.config, self.dataset)  # with word2id
@@ -208,7 +199,6 @@ class EUTHE(UTHE):
                                         step_rule=self.config.step_rule,
                                         parameters=cg.parameters,
                                         on_unused_sources='ignore')
-
 
             if plot_avail:
                 extensions = [FinishAfter(after_n_epochs=1),
@@ -227,36 +217,33 @@ class EUTHE(UTHE):
                         every_n_batches=self.config.print_freq)
                 ]
 
-            extensions += [
-                DataStreamMonitoring(
-                    [v for l in self.model.monitor_valid_vars for v in l],
-                    valid_stream,
-                    prefix='valid',
-                    before_first_epoch = False,
-                    every_n_epochs=self.config.save_freq)
-            ]
+            saver_loader = self.model_save_loader(load_from=load_from,
+                                                  save_to=save_to,
+                                                  model=cg,
+                                                  dataset=self.dataset)
+            saver_loader.do_load()
 
-            if self.config.save_freq is not None:
-                extensions += [
-                    self.model_save_loader(load_from=load_from,
-                                   save_to = save_to,
-                                   model=cg,
-                                   dataset= self.dataset,
-                                   before_training=True,
-                                   after_training=True,
-                                   after_epoch=True,
-                                   every_n_batches=self.config.save_freq)
-                ]
+            extensions += [
+                EvaluatorWithEarlyStop(
+                    coverage=self.dataset.hashtag_coverage,
+                    tolerate_time=10,
+                    variables=[v for l in self.model.monitor_valid_vars for v in l],
+                    monitor_variable=self.model.stop_monitor_var,
+                    data_stream=valid_stream,
+                    saver=saver_loader,
+                    prefix='valid',
+                    every_n_epochs=self.config.valid_freq)
+            ]
 
             extensions += [
                 Printing(every_n_batches=self.config.print_freq, after_epoch=True),
                 ProgressBar()
             ]
 
-            if count < 10:
-                extensions += [EpochMonitor(10)]
-            else:
-                extensions += [EpochMonitor(30)]
+            # if count < 10:
+            #     extensions += [EpochMonitor(10)]
+            # else:
+            #     extensions += [EpochMonitor(30)]
             count += 1
             main_loop = MainLoop(
                 model=cg,
@@ -269,53 +256,6 @@ class EUTHE(UTHE):
             main_loop.run()
             load_from = "{0}_{1}.pkl".format(model_base_name, str(date))
             logger.info("Training model on date:{0} finished!".format(date))
-
-
-class AUTHE(UTHE):
-    def __init__(self, config = None):
-        super(AUTHE,self).__init__(config)
-
-
-    def _initialize(self, config=None):
-        if config is None:
-            self.config = AUTHC
-        else:
-            self.config = config
-        self.dataset = AUTHD(self.config)
-        self.model = None
-        self.model_save_loader = BasicSaveLoadParams
-
-
-class FUTHE(UTHE):
-    def __init__(self, config = None):
-        super(FUTHE, self).__init__(config)
-
-    def _initialize(self, config = None):
-        if config is None:
-            self.config = FUTHC
-        else:
-            self.config = config
-        self.dataset = FUTHD(self.config)
-        self.model = None
-        self.model_save_loader = ForgetSaveLoadParams
-
-
-class FEUTHE(EUTHE):
-    def __init__(self, config = None):
-        super(FEUTHE, self).__init__(config)
-
-    def _initialize(self, config = None):
-        if config is None:
-            self.config = FEUTHC
-        else:
-            self.config = config
-        self.dataset = FEUTHD(self.config)
-        self.model = None
-        self.model_save_loader = ForgetExtendSaveLoadParams
-
-
-class WUTHE(object):
-    pass
 
 
 class TUTHE(UTHE):

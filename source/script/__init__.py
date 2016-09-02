@@ -177,10 +177,12 @@ def pickle_dataset(config = None, read_from = "path_to_read", save_to = "path_to
     with open(save_to, 'wb+') as f:
         cPickle.dump(dataset, f, protocol=cPickle.HIGHEST_PROTOCOL)
 
+
 def pickle_user_name(config = None, read_from = "path_to_read", save_to = "path_to_save"):
     name2id = dataset.load_dic(read_from)
     with open(save_to, "wb+") as f:
         cPickle.dump(name2id,f, cPickle.HIGHEST_PROTOCOL)
+
 
 
 if __name__ == "__main__":

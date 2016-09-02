@@ -7,6 +7,8 @@ import cPickle
 import theano.tensor as tensor
 import theano
 from blocks.extensions import SimpleExtension
+from blocks.extensions.monitoring import DataStreamMonitoring
+from blocks.monitoring.evaluators import DatasetEvaluator
 from blocks.theano_expressions import l2_norm
 from blocks.algorithms import Scale
 from picklable_itertools.extras import equizip
@@ -147,6 +149,57 @@ class ExtendSaveLoadParams(BasicSaveLoadParams):
                 cur_char_embed[cur_char2index[char]] = last_char_embed[index]
         #endregion
         self.model.set_parameter_values(cur_model_params)
+
+
+class EarlyStopMonitor(DataStreamMonitoring):
+    PREFIX_SEPARATOR = '_'
+
+    def __init__(self, variables, monitor_variable, data_stream, updates=None, saver=None, tolerate_time = 5, **kwargs):
+        super(DataStreamMonitoring, self).__init__(**kwargs)
+        self._evaluator = DatasetEvaluator(variables, updates)
+        self.data_stream = data_stream
+        self.saver = saver
+        self.best_result = -1.0
+        self.wait_time = 0
+        self.tolerate_time = tolerate_time
+        self.monitor_variable = monitor_variable
+
+    def do(self, callback_name, *args):
+        """Write the values of monitored variables to the log."""
+        logger.info("Monitoring on auxiliary data started")
+        value_dict = self._evaluator.evaluate(self.data_stream)
+        self.add_records(self.main_loop.log, value_dict.items())
+        logger.info("Monitoring on auxiliary data finished")
+        self.check_stop(value_dict)
+
+    def check_stop(self, value_dict):
+        if value_dict[self.monitor_variable.name] >= self.best_result:
+            self.best_result = value_dict[self.monitor_variable.name]
+            self.wait_time = 0
+            if self.saver is not None:
+                self.saver.do_save()
+        else:
+            self.wait_time += 1
+        if self.wait_time > self.tolerate_time:
+            self.main_loop.status['batch_interrupt_received'] = True
+            self.main_loop.status['epoch_interrupt_received'] = True
+
+
+class EvaluatorWithEarlyStop(EarlyStopMonitor):
+    def __init__(self, coverage, **kwargs):
+        super(EvaluatorWithEarlyStop, self).__init__(**kwargs)
+        self.coverage = coverage
+
+    def do(self, callback_name, *args):
+        """Write the values of monitored variables to the log."""
+        logger.info("Monitoring on auxiliary data started")
+        value_dict = self._evaluator.evaluate(self.data_stream)
+        for key in value_dict.keys():
+            value_dict[key] *= self.coverage
+        value_dict['coverage'] = self.coverage
+        self.add_records(self.main_loop.log, value_dict.items())
+        logger.info("Monitoring on auxiliary data finished")
+        self.check_stop(value_dict)
 
 
 class ForgetExtendSaveLoadParams(BasicSaveLoadParams):

@@ -13,7 +13,7 @@ import datetime
 import numpy as np
 
 from config import UTHC
-from dataset import  RUTHD, SUTHD
+from dataset import  RUTHD, SNUTHD
 
 def get_distribution(tags):
     assert tags is not None

@@ -1,9 +1,8 @@
 from blocks.algorithms import BasicMomentum, AdaDelta, RMSProp, Adam, CompositeRule, StepClipping, Momentum, Scale
 import os
 import datetime
+from model import  LUTHM, EUTHM, FUTHM, TUTHM
 
-
-from model import  LUTHM, EUTHM, TUTHM, AUTHM
 
 class BasicConfig:
     '''
@@ -30,7 +29,7 @@ class BasicConfig:
     print_freq = 100
     save_freq = 1000
     # Measured by epoch
-    valid_freq = 2
+    valid_freq = 1
 
 
 class UGC(BasicConfig):
@@ -61,7 +60,7 @@ class UGC(BasicConfig):
 class UTHC(BasicConfig):
     Model = LUTHM
 
-    model_path = os.path.join(BasicConfig.project_dir, "output/model/UTHC_lstm.pkl")
+    model_path = os.path.join(BasicConfig.project_dir, "output/model/UTH/UTH.pkl")
 
     # If is directory, read all the files with extension ".txt"
     train_path = os.path.join(BasicConfig.project_dir, "data/unit test/posts.pkl")
@@ -88,7 +87,7 @@ class UTHC(BasicConfig):
     date_index = 3
 
     #sparse word threshold
-    sparse_word_percent = 0.001
+    sparse_word_percent = 0.05
     sparse_hashtag_percent = 0.005
     sparse_user_percent = 0.005
     # date span for traing
@@ -112,29 +111,27 @@ class UTHC(BasicConfig):
     # endregion
 
 
-class AUTHC(UTHC):
-    Model = AUTHM
-
-
 class EUTHC(UTHC):
     Model = EUTHM
+
+    model_path = os.path.join(BasicConfig.project_dir, 'output/model/EUTH/EUTH.pkl')
 
     user_name2id_path = os.path.join(BasicConfig.project_dir, "data/tweet/user_name2id.pkl")
 
     # character embedding dimention
     char_embed_dim = 10
     # character reading dimention
-    url_rnn_dim = 10
+    char_rnn_dim = 10
 
 
-class FUTHC(UTHC):
-    '''Forget Extended User Text Hashtag Config'''
-    hashtag_forget_rate = 0.95
+class FUTHC(EUTHC):
+    '''Full Extended User Text Hashtag Config'''
+    Model = FUTHM
 
+    model_path = os.path.join(BasicConfig.project_dir, 'output/model/FUTH/FUTH.pkl')
 
-class FEUTHC(EUTHC):
-    '''Forget Extended User Text Hashtag Config'''
-    hashtag_forget_rate = 0.95
+    # TODO: Set time window
+    time_window = 10
 
 
 class TUTHC(UTHC):
