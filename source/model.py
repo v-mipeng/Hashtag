@@ -4,7 +4,7 @@ from theano.ifelse import ifelse
 import numpy
 import codecs
 
-from blocks.bricks import Tanh, Softmax, Linear, MLP, Identity, Rectifier
+from blocks.bricks import Tanh, Softmax, Linear, MLP, Identity, Rectifier, Bias
 from blocks.bricks.lookup import LookupTable
 from blocks.bricks.recurrent import LSTM, SimpleRecurrent
 
@@ -356,7 +356,9 @@ class FUTHM(EUTHM):
 
     def _build_bricks(self):
         super(FUTHM, self)._build_bricks()
-        # hashtag_bias = theano.shared(numpy.zeros(len(self.dataset.hashtag2index), dtype=theano.config.floatX))
+        self.hashtag_bias = Bias(dim = len(self.dataset.hashtag2index),name = 'hashtag_bias')
+        self.hashtag_bias.biases_init = Constant(0)
+        self.hashtag_bias.initialize()
         # Set embedding of OV characters and users
         W = self.char_embed.W.get_value()
         W[self.dataset.char2index['<unk>']] = 0.
@@ -380,7 +382,7 @@ class FUTHM(EUTHM):
         # Reference:Mikolov T, Sutskever I, Chen K, et al.
         #           Distributed Representations of Words and Phrases and their Compositionality[J].
         #           Advances in Neural Information Processing Systems, 2013, 26:3111-3119.
-        preds = tensor.dot(input_vec, self.hashtag_embed.W.T)
+        preds = self.hashtag_bias.apply(tensor.dot(input_vec, self.hashtag_embed.W.T))
         preds = preds - tensor.max(preds, axis=1)[:, None]
         cost = Softmax().categorical_cross_entropy(self.hashtag, preds).mean()
         max_index = preds.argmax(axis=1)
@@ -400,7 +402,7 @@ class FUTHM(EUTHM):
 
     def _get_test_cost(self, input_vec):
         idx = (input_vec.shape[0] * self.config.sample_percent_for_test).astype('int32')
-        preds = tensor.dot(input_vec[0:idx], self.hashtag_embed.W.T)
+        preds = self.hashtag_bias.apply(tensor.dot(input_vec[0:idx], self.hashtag_embed.W.T))
         ranks = tensor.argsort(preds, axis=1)[::-1]
         top1_recall = tensor.eq(self.hashtag[0:idx], ranks[:, 0]).mean()
         top10_recall = tensor.sum(tensor.eq(ranks[:, 0:self.rank], self.hashtag[0:idx, None]),

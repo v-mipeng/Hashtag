@@ -111,7 +111,7 @@ class ExtendSaveLoadParams(BasicSaveLoadParams):
         cur_model_params = self.model.get_parameter_values()
         # Initialize LSTM params
         for key, value in last_model_params.iteritems():
-            if key != "/hashtag_embed.W" and key != "/user_embed.W" and key != "/word_embed.W" and key != '/char_embed.W':
+            if key != "/hashtag_embed.W" and key != '/hashtag_bias.b' and key != "/user_embed.W" and key != "/word_embed.W" and key != '/char_embed.W':
                 cur_model_params[key] = value
 
         #region Initialize embedding params
@@ -120,9 +120,12 @@ class ExtendSaveLoadParams(BasicSaveLoadParams):
         cur_hashtag_embed = cur_model_params['/hashtag_embed.W']
         last_hashtag2index = last_dataset_params['hashtag2index']
         cur_hashtag2index = cur_dataset_params['hashtag2index']
+        last_hashtag_bias = last_model_params['/hashtag_bias.b']
+        cur_hashtag_bias = cur_model_params['/hashtag_bias.b']
         for hashtag, index in last_hashtag2index.iteritems():
             if hashtag in cur_hashtag2index:
                 cur_hashtag_embed[cur_hashtag2index[hashtag]] = last_hashtag_embed[index]
+                cur_hashtag_bias[cur_hashtag2index[hashtag]] = last_hashtag_bias[index]
         # Initialize user embedding
         last_user_embed = last_model_params['/user_embed.W']
         cur_user_embed = cur_model_params['/user_embed.W']

@@ -366,7 +366,7 @@ class RUTHD(object):
         self.LAST_DAY = "LAST_DAY"
         self.FIRST_DAY = "FIRST_DAY"
 
-    def prepare(self, data_path=None):
+    def prepare(self, raw_dataset = None, data_path=None):
         '''
         Prepare dataset
         :param data_path:
@@ -376,8 +376,12 @@ class RUTHD(object):
             data_path = self.config.train_path
         print("Preparing dataset...")
         # Load pickled dataset
-        with open(data_path, 'rb') as f:
-            self.raw_dataset = cPickle.load(f)
+        #TODO: if raw_dataset is not None
+        if raw_dataset is None:
+            with open(data_path, 'rb') as f:
+                self.raw_dataset = cPickle.load(f)
+        else:
+            self.raw_dataset = raw_dataset
         fields = zip(*self.raw_dataset)
         self.dates = numpy.array(fields[self.config.date_index])
         self.first_date = self.dates.min()
@@ -419,15 +423,156 @@ class RUTHD(object):
         return self.raw_dataset[idxes]
 
 
-class BUTHD(object):
-    __metaclass__ = ABCMeta
+class UTHD(object):
 
-    def __init__(self, config):
+    def __init__(self, config, raw_dataset=None):
         self.config = config
         self.provide_souces = ('user', 'text', 'hashtag')
         self.need_mask_sources = {'text': theano.config.floatX}
         self.compare_source = 'text'
-        self.raw_dataset = RUTHD(config)
+        if raw_dataset is None:
+            self.raw_dataset = RUTHD(config)
+        else:
+            self.raw_dataset = raw_dataset
+        self._initialize()
+
+    @abstractmethod
+    def _initialize(self):
+        '''
+        Initialize dataset information
+        '''
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_parameter_to_save(self):
+        '''
+        Return parameters that need to be saved with model
+        :return: OrderedDict of{name:data,...}
+        '''
+        raise NotImplementedError
+
+    def get_shuffled_stream_by_date(self, date, update=False):
+        self.raw_dataset.prepare()
+        return self.get_shuffled_stream(reference_date="FIRST_DAY",
+                                        date_offset=(date - self.raw_dataset.first_date).days,
+                                        duration=1, update=update)
+
+    def get_train_stream(self, raw_dataset, it='shuffled'):
+        return self._get_stream(raw_dataset, it, for_type='train')
+
+    def get_test_stream(self, raw_dataset, it='shuffled'):
+        return self._get_stream(raw_dataset, it, for_type='test')
+
+    def _get_stream(self, raw_dataset, it = 'shuffled', for_type = 'train'):
+        raw_dataset = self._update_before_transform(raw_dataset, for_type)
+        dataset = self._turn_str2index(raw_dataset, for_type)
+        dataset = self._update_after_transform(dataset, for_type)
+        if it == 'shuffled':
+            return self._construct_shuffled_stream(dataset)
+        elif it == 'sequencial':
+            return self._construct_sequencial_stream(dataset)
+        else:
+            raise ValueError('it should be "shuffled" or "sequencial"!')
+
+    @abstractmethod
+    def _update_before_transform(self, raw_dataset, for_type = 'train'):
+        '''
+        Do updation beform transform raw_dataset into index representation dataset
+        :param raw_dataset:
+        :param for_type: 'train' if the data is used fof training or 'test' for testing
+        :return: a new raw_dataset
+        '''
+        return raw_dataset
+
+    @abstractmethod
+    def _update_after_transform(self, dataset, for_type = 'train'):
+        '''
+        Do updation after transform raw_dataset into index representation dataset
+        :param for_type: 'train' if the data is used fof training or 'test' for testing
+        :param dataset: tranformed dataset
+        :return: a new transformed dataset
+        '''
+        return dataset
+
+    @abstractmethod
+    def _update(self, raw_dataset):
+        '''
+        Update dataset information.
+        :param raw_dataset: ndarray or list
+        '''
+        raise NotImplementedError
+
+    @abstractmethod
+    def _turn_str2index(self, raw_dataset, for_type='train'):
+        '''
+        Turn string type user, words of context, hashtag representation into index representation.
+
+        Note: Implement this function in subclass
+        '''
+
+        raise NotImplementedError
+
+    def _construct_dataset(self, dataset):
+        '''
+        Construct an fule indexable dataset.
+        Every data corresponds to the name of self.provide_sources
+        :param dataset: A tuple of data
+        :return:
+        '''
+        return IndexableDataset(indexables=OrderedDict(zip(self.provide_souces, dataset)))
+
+    def _construct_shuffled_stream(self, dataset):
+        '''
+        Construc a shuffled stream from given dataset
+        :param dataset: fuel Indexable dataset
+        :return: A fuel shuffled stream with basic transformations:
+        1.Sort data by self.compare_source
+        2.Batch dataset
+        3.Add mask on self.need_mask_sources
+        '''
+        it = ShuffledExampleScheme(dataset.num_examples)
+        stream = DataStream(dataset, iteration_scheme=it)
+        # Sort sets of multiple batches to make batches of similar sizes
+        stream = Batch(stream,
+                       iteration_scheme=ConstantScheme(self.config.batch_size * self.config.sort_batch_count))
+        comparison = _balanced_batch_helper(stream.sources.index(self.compare_source))
+        stream = Mapping(stream, SortMapping(comparison))
+        stream = Unpack(stream)
+        stream = Batch(stream, iteration_scheme=ConstantScheme(self.config.batch_size))
+        # Add mask
+        for source in self.need_mask_sources.iteritems():
+            stream = Padding(stream, mask_sources=[source[0]], mask_dtype=source[1])
+        return stream
+
+    def _construct_sequencial_stream(self, dataset):
+        '''
+        Construc a sequencial stream from given dataset
+        :param dataset: fuel Indexable dataset
+        :return: A fuel sequencial stream with basic transformations:
+        1.Sort data by self.compare_source
+        2.Batch dataset
+        3.Add mask on self.need_mask_sources
+        '''
+        it = SequentialScheme(dataset.num_examples, self.config.batch_size)
+        stream = DataStream(dataset, iteration_scheme=it)
+        # Add mask
+        for source in self.need_mask_sources.iteritems():
+            stream = Padding(stream, mask_sources=[source[0]], mask_dtype=source[1])
+        return stream
+
+
+class BUTHD(object):
+    __metaclass__ = ABCMeta
+
+    def __init__(self, config, raw_dataset = None):
+        self.config = config
+        self.provide_souces = ('user', 'text', 'hashtag')
+        self.need_mask_sources = {'text': theano.config.floatX}
+        self.compare_source = 'text'
+        if raw_dataset is None:
+            self.raw_dataset = RUTHD(config)
+        else:
+            self.raw_dataset = raw_dataset
         self._initialize()
 
     @abstractmethod
@@ -575,8 +720,8 @@ class NUTHD(BUTHD):
     '''
     Negtive sampling UTHD
     '''
-    def __init__(self, config):
-        super(NUTHD, self).__init__(config)
+    def __init__(self, config, raw_dataset = None):
+        super(NUTHD, self).__init__(config, raw_dataset)
         # Dictionary
         self.user2index = {}
         self.hashtag2index = {}
@@ -897,8 +1042,8 @@ class FUTHD(BUTHD):
     '''
     Full UTHD
     '''
-    def __init__(self, config):
-        super(FUTHD, self).__init__(config)
+    def __init__(self, config, raw_dataset = None):
+        super(FUTHD, self).__init__(config, raw_dataset)
         # Dictionary
         self.user2index = {'<unk>':0}   # Deal with OV when testing
         self.hashtag2index = {}
