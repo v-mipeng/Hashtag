@@ -1,7 +1,7 @@
 import os
-from entrance import UTHE, FUTHE
-from config import EUTHC, FUTHC, UTHC
+from entrance import *
+
 
 if __name__ ==  "__main__":
-    entrance = FUTHE()
+    entrance = OVHashtagUTHE()
     entrance.train()

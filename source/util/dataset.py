@@ -1,17 +1,10 @@
 # -*- coding : utf-8 -*-
-
-import codecs
-import ntpath
-import os
-import sys
 import theano
 import numpy
 from fuel.transformers import Transformer
-from nltk.tokenize import TweetTokenizer
-twtk = TweetTokenizer()
 from util.exception import *
 
-
+#region Transformer
 class _balanced_batch_helper(object):
     def __init__(self, key):
         self.key = key
@@ -194,7 +187,10 @@ class CharEmbedding(Transformer):
                 # turn list of ndarray to one ndarray
                 char_batch = []
                 for item in source_batch:
-                    char_batch += item
+                    try:
+                        char_batch += list(item)
+                    except Exception as e:
+                        print(type(item))
                 if len(char_batch) == 0:
                     padded_batch = numpy.array([[0,0]], dtype="int32")
                     batch_mask = numpy.array([[1.,1.]], dtype=theano.config.floatX)
@@ -244,6 +240,7 @@ class CharEmbedding(Transformer):
             mask[i, :sequence_length] = 1
         return padded_batch, mask
 
+#endregion
 
 def split_train_valid(data , valid_portion):
     '''
@@ -260,80 +257,17 @@ def split_train_valid(data , valid_portion):
     return train_data, valid_data
 
 
-def load_dic(path, mode = "debug"):
-    if not os.path.exists(path):
-        raise FileNotExistError()
-    dic = {}
-    count = 0
-    with codecs.open(path, "r", encoding = "UTF-8", errors = "ignore") as f:
-        for line in f:
-            count += 1
-            try:
-                array = line.split('\t')
-                if len(array) != 2:
-                    raise FileFormatError("Encounter format error at %dth line" % count)
-                dic[array[0]] = int(array[1])
-            except Exception as error:
-                if mode == "debug":
-                    print(error.message)
-                    choice = raw_input("Skip this error?y|n")
-                    if choice.lower() == "n":
-                        sys.exit(1)
-    return dic
-
-
-def read_file_by_line(file_path, delimiter="\t", field_num = None, mode="debug"):
+def get_sparse_threshold(freq, sparse_percent):
     '''
-    Read file by line and split it into fields with given delimiter.
-    :param file_path: The path of the file
-    :param delimiter: delimiter applied to split line into fields
-    :param field_num: designed field number, if it does not match, error will raise in debug mode
-    :param mode: running mode: debug or run, if it is run, ignore file format error else system will raise a hint
-    :return: [[field1_line1,field2_line2..],[field1_line2,...]...]
+    Get the frequency threshold. Word with its frequency below the threshold will be treated as sparse word
     '''
-    if not os.path.exists(file_path):
-        raise FileNotExistError()
-    dataset = []
-    count = 0
-    with codecs.open(file_path, mode = "r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            line = line.strip()
-            count += 1
-            try:
-                if field_num is not None:
-                    array = line.split(delimiter)
-                    if len(array) != field_num:
-                        raise FileFormatError("Only find %d fields in line %d with delimiter %s" %(len(array),count,delimiter))
-                    else:
-                        dataset.append(array)
-                else:
-                    dataset.append(line.split(delimiter))
-            except FileFormatError as error:
-                if mode == "debug":
-                    print(error.message)
-                    choice = raw_input("Skip this error?y|n")
-                    if choice.lower() == "n":
-                        sys.exit(1)
-                else:
-                    #pass the line. Debug mode should be run firstly
-                    pass
-    return dataset
-
-
-def save_dic(path, dictionary):
-    dir = ntpath.dirname(path)
-    if not os.path.exists(dir):
-        os.makedirs(dir)
-    with codecs.open(path, "w+", encoding = "UTF-8") as f:
-        for key, value in dictionary.iteritems():
-            f.write("%s\t%s\n" % (key, value))
-
-
-def tokenize_sentence(sentence):
-    global twtk
-    if sentence is None:
-        return []
+    num = numpy.array(freq)
+    num.sort()
+    total = num.sum()
+    cum_num = num.cumsum()
+    threshold = int(total * sparse_percent)
+    min_index = numpy.argmin(numpy.abs(threshold - cum_num))
+    if cum_num[min_index] > threshold:
+        return num[numpy.max(min_index - 1, 0)]
     else:
-        return twtk._tokenize(sentence)
-
-
+        return num[min_index]

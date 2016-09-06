@@ -1,7 +1,7 @@
 from blocks.algorithms import BasicMomentum, AdaDelta, RMSProp, Adam, CompositeRule, StepClipping, Momentum, Scale
 import os
 import datetime
-from model import  LUTHM, EUTHM, FUTHM, TUTHM
+from model import *
 
 
 class BasicConfig:
@@ -26,39 +26,15 @@ class BasicConfig:
     step_rule = AdaDelta()
 
     # Measured by batches, e.g, valid every 1000 batches
-    print_freq = 100
+    print_freq = 10
     save_freq = 1000
     # Measured by epoch
     valid_freq = 1
 
 
-class UGC(BasicConfig):
-    '''
-    User graph config
-    '''
-
-    # directory storing the users' id2index files
-    user_id2index_dir = ""
-
-    # directory storing the user graph files
-    user_graph_dir = ""
-
-    # negtive sampling size for training user graph.
-    # reference: Mikolov, Tomas, et al. "Distributed representations of words and phrases and their compositionality."?Advances in neural information processing systems. 2013.
-    user_sample_size = 5
-
-    date = datetime.date(year=2015, month=10, day=23)
-
-    user_hashtag_time_span = 3
-
-    # path to store the model trained on user graph
-    user_graph_model_path = ""
-
-    hashtag_embed_dim = 100
-
-
 class UTHC(BasicConfig):
-    Model = LUTHM
+
+    Model = UTHM
 
     model_path = os.path.join(BasicConfig.project_dir, "output/model/UTH/UTH.pkl")
 
@@ -87,13 +63,21 @@ class UTHC(BasicConfig):
     date_index = 3
 
     #sparse word threshold
-    sparse_word_percent = 0.05
-    sparse_hashtag_percent = 0.005
+    #TODO: adjust sparse_word_percent
+    sparse_word_percent = 0.005
     sparse_user_percent = 0.005
-    # date span for traing
-    duration = 30
+    sparse_hashtag_percent = 0.005
 
+
+    # begin date
     begin_date = None
+
+    time_window = 10
+    # tolerate time for validation
+    tolerate_time = 5
+
+    # percent of validation dataset
+    valid_percent = 0.2
 
     # region Model control parameters
     user_embed_dim = 50
@@ -106,9 +90,16 @@ class UTHC(BasicConfig):
 
     lstm_time = 1
 
-    sample_percent_for_test = 0.1
+    # valid on 0.1* size of validation dataset
+    sample_percent_for_test = 0.2
 
     # endregion
+
+
+class BiasUTHC(UTHC):
+    Model = BiasUTHM
+
+    model_path = os.path.join(BasicConfig.project_dir, "output/model/BiasUTHC/BiasUTHC.pkl")
 
 
 class EUTHC(UTHC):
@@ -124,15 +115,40 @@ class EUTHC(UTHC):
     char_rnn_dim = 10
 
 
-class FUTHC(EUTHC):
-    '''Full Extended User Text Hashtag Config'''
-    Model = FUTHM
+class EMicroblogTHC(EUTHC):
+    Model = EMicroblogTHM
 
-    model_path = os.path.join(BasicConfig.project_dir, 'output/model/FUTH/FUTH.pkl')
+    test_percent = 0.2
 
-    # TODO: Set time window
-    time_window = 10
+    model_path = os.path.join(BasicConfig.project_dir, 'output/model/EMicroblogTH/EMicroblogTH.pkl')
 
 
 class TUTHC(UTHC):
     Model = TUTHM
+
+
+#region Developing
+class UGC(BasicConfig):
+    '''
+    User graph config
+    '''
+
+    # directory storing the users' id2index files
+    user_id2index_dir = ""
+
+    # directory storing the user graph files
+    user_graph_dir = ""
+
+    # negtive sampling size for training user graph.
+    # reference: Mikolov, Tomas, et al. "Distributed representations of words and phrases and their compositionality."?Advances in neural information processing systems. 2013.
+    user_sample_size = 5
+
+    date = datetime.date(year=2015, month=10, day=23)
+
+    user_hashtag_time_span = 3
+
+    # path to store the model trained on user graph
+    user_graph_model_path = ""
+
+    hashtag_embed_dim = 100
+#endregion
