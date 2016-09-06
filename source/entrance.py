@@ -161,30 +161,28 @@ class UTHE(object):
 
     def test(self, test_stream, load_from):
         # Build model
-        self.model = self.config.Model(self.config, self.dataset)  # with word2id
-
         cg = Model(self.model.cg_generator)
-        saver_loader = self.model_save_loader(load_from=load_from,
-                                              save_to=None,
-                                              model=cg,
-                                              dataset=self.dataset)
-        saver_loader.do_load()
         inputs = cg.inputs
         top1_recall = 0.
         top10_recall = 0.
-        f_top1 = theano.function(inputs, self.model.monitor_valid_vars[0][0])
-        f_top10 = theano.function(inputs, self.model.monitor_valid_vars[1][0])
+        cost = 0.
+        f_cost = theano.function(inputs, self.model.monitor_train_vars[0][0])
+        f_top1 = theano.function(inputs, self.model.monitor_train_vars[1][0])
+        f_top10 = theano.function(inputs, self.model.monitor_train_vars[2][0])
         data_size = 0
         for batch in test_stream.get_epoch_iterator():
             data_size += batch[0].shape[0]
             stream_inputs = []
             for input in inputs:
                 stream_inputs.append(batch[test_stream.sources.index(input.name)])
+            cost += f_cost(*tuple(stream_inputs))*stream_inputs[0].shape[0]
             top1_recall += f_top1(*tuple(stream_inputs)) * stream_inputs[0].shape[0]
             top10_recall += f_top10(*tuple(stream_inputs)) * stream_inputs[0].shape[0]
         top1_recall /= data_size
         top10_recall /= data_size
+        cost /= data_size
         print("Test hashtag coverage:{0}".format(self.dataset.hashtag_coverage))
+        print("cost:{0}\n".format(cost))
         print("top1_recall:{0}\n".format(top1_recall * self.dataset.hashtag_coverage))
         print("top10_recall:{0}\n".format(top10_recall * self.dataset.hashtag_coverage))
 
@@ -216,21 +214,6 @@ class EUTHE(UTHE):
         self.dataset = EUTHD(self.config)
         self.model = None
         self.model_save_loader = ExtendSaveLoadParams
-
-
-class OVHashtagUTHE(BiasUTHE):
-    def __init__(self, config = None):
-        super(OVHashtagUTHE, self).__init__(config)
-
-    def _initialize(self, config = None):
-        if config is None:
-            self.config = UTHC
-        else:
-            self.config = config
-        self.raw_dataset = RUTHD(self.config)
-        self.dataset = OVHashtagUTHD(self.config)
-        self.model = None
-        self.model_save_loader = BiasSaveLoadParams
 
 
 class EMicroblogTHE(EUTHE):
@@ -443,13 +426,13 @@ class TimeLineUTHE(UTHE):
         print("top10_recall:{0}\n".format(top10_recall*self.dataset.hashtag_coverage))
 
 
-class TimeLineEUTHE(TimeLineUTHE):
+class TimeLineEUTHE(UTHE):
     def __init__(self, config = None):
         super(TimeLineEUTHE, self).__init__(config)
 
     def _initialize(self, config = None):
         if config is None:
-            self.config = FUTHC
+            self.config = TimeLineEUTHC
         else:
             self.config = config
         self.raw_dataset = RUTHD(self.config)
@@ -458,19 +441,95 @@ class TimeLineEUTHE(TimeLineUTHE):
         self.model_save_loader = ExtendSaveLoadParams
 
 
-class TUTHE(EUTHE):
+    def train(self, *args, **kwargs):
+        '''
+                Train a user-text-hashtag lstm model with given training dataset or the default dataset which is defined with config.train_path
+
+                @param train_path: path of the training dataset, file or directory, default: config.train_path
+                                   File foramt: Mention TAB True_label TAB Context
+
+                @param valid_portion: a float value define the portion of validation, default: config.multi_time_lstm.MLTC.valid_portion
+                                      size of validation dataset: all_the_sample_num * valid_portion
+
+                @param valid_path: path of the validation dataset, file or directory, if given, the valid_portion will be 0.
+
+
+                @param model_path: path to dump the trained model, default: config.multi_time_lstm module.model_path
+                '''
+        load_from = self.config.model_path
+        model_base_name, _ = os.path.splitext(self.config.model_path)
+        count = 0
+        self.raw_dataset.prepare()
+        if self.config.begin_date is None:
+            date_offset = 0
+        elif isinstance(self.config.begin_date, datetime.date):
+            if self.config.begin_date >= self.raw_dataset.first_date:
+                date_offset = (self.config.begin_date - self.raw_dataset.first_date).days
+            else:
+                raise ValueError('begin date should be latter than the earlist date of the dataset')
+        else:
+            date_offset = self.config.begin_date
+        # TODO: iterate on date_offset to get dynamic result
+        for i in range(self.config.time_window-1):
+            date = self.raw_dataset.first_date + datetime.timedelta(days=date_offset + i + 1)
+            save_to = "{0}_{1}.pkl".format(model_base_name, str(date))
+            if i < self.config.time_window - 1:
+                train_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+                                                                 date_offset=date_offset + i,
+                                                                 duration=1)
+                valid_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+                                                                 date_offset=date_offset + i + 1,
+                                                                 duration=1)
+            else:
+                tmp = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+                                                   date_offset=date_offset + i,
+                                                   duration=1)
+                rvs = numpy.random.uniform(low=0., high=1., size=len(tmp))
+                train_raw_dataset = tmp[rvs > self.config.valid_percent]
+                valid_raw_dataset = tmp[rvs <= self.config.valid_percent]
+            train_stream = self.dataset.get_train_stream(train_raw_dataset)
+            valid_stream = self.dataset.get_test_stream(valid_raw_dataset)
+            print("Train on {0} hashtags\n".format(len(self.dataset.hashtag2index.keys())))
+            # Train the model !
+            logging.info("Training model on date:{0} ...".format(date))
+            self._train_model(train_stream, valid_stream, load_from, save_to)
+            logger.info("Training model on date:{0} finished!".format(date))
+            load_from = save_to
+        test_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+                                                        date_offset=self.config.time_window,
+                                                        duration=1)
+        test_stream = self.dataset.get_test_stream(test_raw_dataset)
+        date = self.raw_dataset.first_date + datetime.timedelta(days=date_offset + self.config.time_window)
+        logging.info("Test model on date:{0} ...".format(date))
+        self.test(test_stream, load_from=load_from)
+        logger.info("Test model on date:{0} finished!".format(date))
+
+
+class TUTHE(BiasUTHE):
 
     def __init__(self, config = None):
         super(TUTHE,self).__init__(config)
 
-    def test(self):
+    def test(self, test_stream, load_from):
         load_from = self.config.model_path
-        test_stream = self.dataset.get_shuffled_stream_by_date(self.config.begin_date, update=False)
+        tmp = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+                                           date_offset=self.config.time_window - 1,
+                                           duration=self.config.time_window)
+        numpy.random.seed(123)
+        rvs = numpy.random.uniform(low=0., high=1., size=len(tmp))
+        train_raw_dataset = tmp[rvs > self.config.valid_percent]
+        valid_raw_dataset = tmp[rvs <= self.config.valid_percent]
+        # valid_stream = self.dataset.get_test_stream(valid_raw_dataset)
+        # test_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+        #                                                 date_offset=self.config.time_window,
+        #                                                 duration=1)
+        # test_stream = self.dataset.get_test_stream(test_raw_dataset)
+        # test_stream = valid_stream
         # Build model
         self.model = self.config.Model(self.config, self.dataset)  # with word2id
 
         cg = Model(self.model.cg_generator)
-        initializer = BasicSaveLoadParams(load_from=load_from,
+        initializer = self.model_save_loader(load_from=load_from,
                                    save_to = load_from,
                                    model=cg,
                                    dataset= self.dataset,
@@ -479,26 +538,31 @@ class TUTHE(EUTHE):
         inputs = cg.inputs
         top1_recall = 0.
         top10_recall = 0.
-        f_top1 = theano.function(inputs, self.model.top1_recall)
-        f_top10 = theano.function(inputs, self.model.top10_recall)
+        cost = 0.
+        f_cost = theano.function(inputs, self.model.monitor_train_vars[0][0])
+        f_top1 = theano.function(inputs, self.model.monitor_train_vars[1][0])
+        f_top10 = theano.function(inputs, self.model.monitor_train_vars[2][0])
         data_size = 0
         for batch in test_stream.get_epoch_iterator():
             data_size += batch[0].shape[0]
             stream_inputs = []
             for input in inputs:
                 stream_inputs.append(batch[test_stream.sources.index(input.name)])
-            top1_recall += f_top1(*tuple(stream_inputs))*stream_inputs[0].shape[0]
-            top10_recall += f_top10(*tuple(stream_inputs))*stream_inputs[0].shape[0]
+            cost += f_cost(*tuple(stream_inputs)) * stream_inputs[0].shape[0]
+            top1_recall += f_top1(*tuple(stream_inputs)) * stream_inputs[0].shape[0]
+            top10_recall += f_top10(*tuple(stream_inputs)) * stream_inputs[0].shape[0]
         top1_recall /= data_size
         top10_recall /= data_size
-        print("top1_recall:{0}\n".format(top1_recall))
-        print("top10_recall:{0}\n".format(top10_recall))
+        cost /= data_size
+        print("Test hashtag coverage:{0}".format(self.dataset.hashtag_coverage))
+        print("cost:{0}\n".format(cost))
+        print("top1_recall:{0}\n".format(top1_recall * self.dataset.hashtag_coverage))
+        print("top10_recall:{0}\n".format(top10_recall * self.dataset.hashtag_coverage))
 
 
 if __name__ ==  "__main__":
-    config = TUTHC
-    config.model_path = os.path.join(config.project_dir, "output/model/UTHC_lstm_2015-01-31.pkl")
-    config.begin_date = datetime.date(2015, 2, 11)
+    config = BiasUTHC
+    config.model_path = os.path.join(config.project_dir, "output/model/BiasUTH_2015-01-113.pkl")
     entrance = TUTHE(config)
-    entrance.test()
+    entrance.test(test_stream=None,load_from=None)
     rvg = numpy.random.seed(123)

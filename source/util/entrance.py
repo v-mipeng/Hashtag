@@ -82,6 +82,7 @@ class BasicSaveLoadParams(SimpleExtension):
         cur_hashtag_embed = cur_model_params['/hashtag_embed.W']
         last_hashtag2index = last_dataset_params['hashtag2index']
         cur_hashtag2index = cur_dataset_params['hashtag2index']
+
         for hashtag, index in last_hashtag2index.iteritems():
             if hashtag in cur_hashtag2index:
                 cur_hashtag_embed[cur_hashtag2index[hashtag]] = last_hashtag_embed[index]
@@ -140,12 +141,12 @@ class BiasSaveLoadParams(BasicSaveLoadParams):
                 cur_hashtag_bias[cur_hashtag2index[hashtag]] = last_hashtag_bias[index]
 
 
-class ExtendSaveLoadParams(BasicSaveLoadParams):
+class ExtendSaveLoadParams(BiasSaveLoadParams):
     def __init__(self, load_from, save_to, model, dataset, **kwargs):
         super(ExtendSaveLoadParams, self).__init__(load_from, save_to, model, dataset,**kwargs)
 
-    def _initialize_other(self, last_model_params, cur_model_params,
-                          last_dataset_params, cur_dataset_params):
+    def _initialize_other(self, last_model_params, last_dataset_params,
+                          cur_model_params, cur_dataset_params):
         last_char_embed = last_model_params['/char_embed.W']
         cur_char_embed = cur_model_params['/char_embed.W']
         last_char2index = last_dataset_params['char2index']
@@ -154,7 +155,7 @@ class ExtendSaveLoadParams(BasicSaveLoadParams):
             if char in cur_char2index:
                 cur_char_embed[cur_char2index[char]] = last_char_embed[index]
         for key, value in last_model_params.iteritems():
-            if key not in ("/hashtag_embed.W", "/user_embed.W", '/word_embed.W', '/char_embed.W'):
+            if key not in ("/hashtag_embed.W",'/hashtag_bias.b', "/user_embed.W", '/word_embed.W', '/char_embed.W'):
                 cur_model_params[key] = value
 
 

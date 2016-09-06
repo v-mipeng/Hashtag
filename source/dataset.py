@@ -341,6 +341,7 @@ class UHGD(object):
             hashtag_list = hashtag_list+hashtags
 #endregion
 
+
 class RUTHD(object):
     '''
        Basic dataset with user-text-time-hashtag information.
@@ -395,6 +396,12 @@ class RUTHD(object):
         :return: A ndarray: array([[[],[]..],...])
         '''
         # Get duration of the dataset to load
+        if data_path is not None:
+            self.prepare(data_path)
+        elif self.dates is None or len(self.dates) == 0:
+            self.prepare()
+        else:
+            pass
         if reference_date == self.FIRST_DAY:
             date_end = self.first_date + datetime.timedelta(days=date_offset)
             date_begin = date_end - datetime.timedelta(days=duration)
@@ -582,17 +589,8 @@ class UTHD(BUTHD):
     '''
     def __init__(self, config):
         super(UTHD, self).__init__(config)
-        # Dictionary
-        self.user2index = {'<unk>': 0}  # Deal with OV when testing
-        self.hashtag2index = {}
-        self.word2index = {'<unk>': 0}
-        # Frequency
-        self.word2freq = {}
-        self.user2freq = {}
         self.hashtag_coverage = 1.
         # Integer. Word whose frequency is less than the threshold will be stemmed
-        self.sparse_word_threshold = 0
-        self.sparse_user_threshold = 0
         # (1D numpy array, 1D numpy array). Storing hashtag id and hashtag normed number pair
         self.provide_souces = ('user', 'text','hashtag')
 
@@ -605,6 +603,25 @@ class UTHD(BUTHD):
                 self.user2index = dataset_prarms['user2index']
                 self.word2index = dataset_prarms['word2index']
                 self.hashtag2index = dataset_prarms['hashtag2index']
+                self.user2freq = dataset_prarms['user2freq']
+                self.word2freq = dataset_prarms['word2freq']
+                self.hashtag2freq = dataset_prarms['hashtag2freq']
+                self.sparse_word_threshold = dataset_prarms['sparse_word_threshold']
+                self.sparse_user_threshold = dataset_prarms['sparse_user_threshold']
+                self.sparse_hashtag_threshold = dataset_prarms['sparse_hashtag_threshold']
+                return dataset_prarms
+        else:
+            # Dictionary
+            self.user2index = {'<unk>': 0}  # Deal with OV when testing
+            self.hashtag2index = {'<unk>': 0}
+            self.word2index = {'<unk>': 0}
+            self.word2freq = {}
+            self.user2freq = {}
+            self.hashtag2freq = {}
+            self.sparse_word_threshold = 0
+            self.sparse_user_threshold = 0
+            self.sparse_hashtag_threshold = 0
+            return None
 
     @abstractmethod
     def get_parameter_to_save(self):
@@ -613,7 +630,10 @@ class UTHD(BUTHD):
         :return: OrderedDict
         '''
         return OrderedDict(
-            {'hashtag2index': self.hashtag2index, 'word2index': self.word2index, 'user2index': self.user2index})
+            {'hashtag2index': self.hashtag2index, 'word2index': self.word2index, 'user2index': self.user2index,
+             'user2freq':self.user2freq, 'word2freq':self.word2freq, 'hashtag2freq':self.hashtag2freq,
+             'sparse_word_threshold':self.sparse_word_threshold, 'sparse_user_threshold':self.sparse_user_threshold,
+             'sparse_hashtag_threshold':self.sparse_hashtag_threshold})
 
     @abstractmethod
     def _update_before_transform(self, raw_dataset, for_type='train'):
@@ -627,8 +647,10 @@ class UTHD(BUTHD):
             fields = zip(*raw_dataset)
             self.word2freq = self._extract_word2freq(fields[self.config.text_index])
             self.user2freq = self._extract_user2freq(fields[self.config.user_index])
+            self.hashtag2freq = self._extract_hashtag2freq(fields[self.config.hashtag_index])
             self.sparse_word_threshold = get_sparse_threshold(self.word2freq.values(), self.config.sparse_word_percent)
             self.sparse_user_threshold = get_sparse_threshold(self.user2freq.values(), self.config.sparse_user_percent)
+            self.sparse_hashtag_threshold = get_sparse_threshold(self.hashtag2freq.values(), self.config.sparse_hashtag_percent)
             return raw_dataset
             # Implement more updation
         elif for_type == 'test':
@@ -687,6 +709,17 @@ class UTHD(BUTHD):
         id, count = numpy.unique(numpy.array(users), return_counts=True)
         return dict(zip(id,count))
 
+    def _extract_hashtag2freq(self, hashtag):
+        assert  hashtag is not None
+        id, count = numpy.unique(numpy.array(hashtag), return_counts=True)
+        return dict(zip(id,count))
+
+    def _is_sparse_hashtag(self,hashtag):
+        if hashtag in self.hashtag2freq and self.hashtag2freq[hashtag] > self.sparse_hashtag_threshold:
+            return False
+        else:
+            return True
+
     def _is_sparse_word(self, word):
         if word in self.word2freq and self.word2freq[word] > self.sparse_word_threshold:
             return False
@@ -699,17 +732,23 @@ class UTHD(BUTHD):
         else:
             return True
 
+    def _get_hashtag_index(self, hashtag, for_type='train'):
+        if for_type == 'test':
+            if hashtag not in self.hashtag2index:
+                raise ValueError('The subclass of EUTHD should remove samples'
+                             ' for testing whose hashtag is not in training dataset!')
+            else:
+                return self.hashtag2index[hashtag]
+        elif self._is_sparse_hashtag(hashtag):
+            return self.hashtag2index['<unk>']
+        else:
+            return self._get_index(hashtag, self.hashtag2index, for_type)
+
     def _get_user_index(self, user, for_type='train'):
         if self._is_sparse_user(user):
             return self.user2index['<unk>']
         else:
             return self._get_index(user, self.user2index, for_type)
-
-    def _get_hashtag_index(self, hashtag, for_type='train'):
-        if for_type == 'test' and hashtag not in self.hashtag2index:
-            raise ValueError('The subclass of EUTHD should remove samples'
-                             ' for testing whose hashtag is not in training dataset!')
-        return self._get_index(hashtag, self.hashtag2index, for_type)
 
     def _get_word_index(self, word, for_type='train'):
         if self._is_sparse_word(word):
@@ -733,18 +772,6 @@ class EUTHD(UTHD):
     '''
     def __init__(self, config):
         super(EUTHD, self).__init__(config)
-        # Dictionary
-        self.user2index = {'<unk>':0}   # Deal with OV when testing
-        self.hashtag2index = {}
-        self.word2index = {}
-        self.char2index = {'<unk>':0}
-        # Frequency
-        self.word2freq = {}
-        self.user2freq = {}
-        self.hashtag_coverage = 1.
-        # Integer. Word whose frequency is less than the threshold will be stemmed
-        self.sparse_word_threshold = 0
-        self.sparse_user_threshold = 0
         # (1D numpy array, 1D numpy array). Storing hashtag id and hashtag normed number pair
         self.provide_souces = ('user', 'text', 'user_word', 'user_word_idx',
                                'hashtag_word', 'hashtag_word_idx', 'sparse_word','sparse_word_idx', 'hashtag')
@@ -757,14 +784,14 @@ class EUTHD(UTHD):
     def _initialize(self):
         with open(self.config.user_name2id_path, 'rb') as f:
             self.user_name2id = cPickle.load(f)
+        dataset_prarms = super(EUTHD, self)._initialize()
         if os.path.exists(self.config.model_path):
-            with open(self.config.model_path, 'rb') as f:
-                cPickle.load(f)
-                dataset_prarms = cPickle.load(f)
-                self.user2index = dataset_prarms['user2index']
-                self.word2index = dataset_prarms['word2index']
-                self.hashtag2index = dataset_prarms['hashtag2index']
-                self.char2index = dataset_prarms['char2index']
+            self.char2index = dataset_prarms['char2index']
+            return dataset_prarms
+        else:
+            self.word2index = {}
+            self.char2index = {'<unk>': 0}
+            return None
 
     @abstractmethod
     def get_parameter_to_save(self):
@@ -772,40 +799,13 @@ class EUTHD(UTHD):
         Return parameters that need to be saved with model
         :return: OrderedDict
         '''
-        return OrderedDict(
-            {'hashtag2index': self.hashtag2index, 'word2index': self.word2index, 'user2index': self.user2index,
-             'char2index': self.char2index})
+        dic = super(EUTHD, self).get_parameter_to_save()
+        dic['char2index'] = self.char2index
+        return dic
 
     @abstractmethod
-    def _update_before_transform(self, raw_dataset, for_type = 'train'):
-        '''
-        Do updation beform transform raw_dataset into index representation dataset
-        :param raw_dataset:
-        :param for_type: 'train' if the data is used fof training or 'test' for testing
-        :return: a new raw_dataset
-        '''
-        if for_type == 'train':
-            fields = zip(*raw_dataset)
-            self.word2freq = self._extract_word2freq(fields[self.config.text_index])
-
-            self.sparse_word_threshold = get_sparse_threshold(self.word2freq.values(),
-                                                                    self.config.sparse_word_percent)
-
-            self.user2freq = self._extract_user2freq(fields[self.config.user_index])
-            self.sparse_user_threshold = get_sparse_threshold(self.user2freq.values(), self.config.sparse_user_percent)
-            self.hashtag_coverage = 1.
-            return raw_dataset
-        elif for_type == 'test':
-            tmp = []
-            for sample in raw_dataset:
-                if sample[self.config.hashtag_index] in self.hashtag2index:
-                    tmp.append(sample)
-                else:
-                    pass
-            self.hashtag_coverage = 1.0 * len(tmp) / len(raw_dataset)
-            return numpy.asarray(tmp)
-        else:
-            raise ValueError('for_type should be only "train" or "test"')
+    def _update_before_transform(self, raw_dataset, for_type='train'):
+        return super(EUTHD, self)._update_before_transform(raw_dataset, for_type)
 
     @abstractmethod
     def _update_after_transform(self, dataset, for_type = 'train'):
@@ -839,9 +839,12 @@ class EUTHD(UTHD):
     def _map(self, raw_dataset, for_type='train'):
         assert raw_dataset is not None or len(raw_dataset) > 0
         fields = zip(*raw_dataset)
-        users = numpy.array(
-            [self._get_user_index(user, for_type) for user in fields[self.config.user_index]],
-            dtype=self.config.int_type)
+        try:
+            users = numpy.array(
+                [self._get_user_index(user, for_type) for user in fields[self.config.user_index]],
+                dtype=self.config.int_type)
+        except Exception as e:
+            pass
         hashtags = numpy.array([self._get_hashtag_index(hashtag, for_type) for hashtag in
                                 fields[self.config.hashtag_index]],
                                dtype=self.config.int_type)
@@ -942,224 +945,10 @@ class EUTHD(UTHD):
         return stream
 
 
-class OVHashtagUTHD(UTHD):
-    '''
-    Train OV hashtags
-    '''
-    def __init__(self, config):
-        super(OVHashtagUTHD, self).__init__(config)
-        self.hashtag2index = {'<unk>': 0}
-        self.sparse_hashtag_threshold = 0
-
-    @abstractmethod
-    def _update_before_transform(self, raw_dataset, for_type='train'):
-        '''
-        Do updation beform transform raw_dataset into index representation dataset
-        :param raw_dataset:
-        :param for_type: 'train' if the data is used fof training or 'test' for testing
-        :return: a new raw_dataset
-        '''
-        if for_type == 'train':
-            fields = zip(*raw_dataset)
-            self.word2freq = self._extract_word2freq(fields[self.config.text_index])
-            self.user2freq = self._extract_user2freq(fields[self.config.user_index])
-            self.hashtag2freq = self._extract_hashtag2freq(fields[self.config.hashtag_index])
-            self.sparse_word_threshold = get_sparse_threshold(self.word2freq.values(), self.config.sparse_word_percent)
-            self.sparse_user_threshold = get_sparse_threshold(self.user2freq.values(), self.config.sparse_user_percent)
-            self.sparse_hashtag_threshold = get_sparse_threshold(self.hashtag2freq.values(), self.config.sparse_hashtag_percent)
-            return raw_dataset
-            # Implement more updation
-        elif for_type == 'test':
-            tmp = []
-            for sample in raw_dataset:
-                if sample[self.config.hashtag_index] in self.hashtag2index:
-                    tmp.append(sample)
-                else:
-                    pass
-            self.hashtag_coverage = 1.0 * len(tmp) / len(raw_dataset)
-            return numpy.asarray(tmp)
-        else:
-            raise ValueError('for_type should be either "train" or "test"')
-
-    def _map(self, raw_dataset, for_type='train'):
-        '''
-        Turn string type user, words of context, hashtag representation into index representation.
-
-        Note: Implement this function in subclass
-        '''
-        assert raw_dataset is not None or len(raw_dataset) > 0
-        fields = zip(*raw_dataset)
-        users = numpy.array(
-            [self._get_user_index(user, for_type) for user in fields[self.config.user_index]],
-            dtype=self.config.int_type)
-        hashtags = numpy.array([self._get_hashtag_index(hashtag, for_type) for hashtag in
-                                fields[self.config.hashtag_index]],
-                               dtype=self.config.int_type)
-
-        texts = [numpy.array([self._get_word_index(word, for_type) for word in text],
-                             dtype=self.config.int_type)
-                 for text in fields[self.config.text_index]]
-        return (users, texts, hashtags)
-
-    def _extract_hashtag2freq(self, hashtag):
-        assert  hashtag is not None
-        id, count = numpy.unique(numpy.array(hashtag), return_counts=True)
-        return dict(zip(id,count))
-
-    def _is_sparse_hashtag(self,hashtag):
-        if hashtag in self.hashtag2freq and self.hashtag2freq[hashtag] > self.sparse_hashtag_threshold:
-            return False
-        else:
-            return True
-
-    def _get_hashtag_index(self, hashtag, for_type='train'):
-        if for_type == 'test':
-            if hashtag not in self.hashtag2index:
-                raise ValueError('The subclass of EUTHD should remove samples'
-                             ' for testing whose hashtag is not in training dataset!')
-            else:
-                return self.hashtag2index[hashtag]
-        elif self._is_sparse_hashtag(hashtag):
-            return self.hashtag2index['<unk>']
-        else:
-            return self._get_index(hashtag, self.hashtag2index, for_type)
-
-
-class OVHashtagEUTHD(EUTHD):
-    def __init__(self, config):
-        super(OVHashtagEUTHD, self).__init__(config)
-        self.hashtag2index = {'<unk>': 0}
-        self.sparse_hashtag_threshold = 0
-
-    @abstractmethod
-    def _update_before_transform(self, raw_dataset, for_type='train'):
-        '''
-        Do updation beform transform raw_dataset into index representation dataset
-        :param raw_dataset:
-        :param for_type: 'train' if the data is used fof training or 'test' for testing
-        :return: a new raw_dataset
-        '''
-        if for_type == 'train':
-            fields = zip(*raw_dataset)
-            self.word2freq = self._extract_word2freq(fields[self.config.text_index])
-            self.user2freq = self._extract_user2freq(fields[self.config.user_index])
-            self.hashtag2freq = self._extract_hashtag2freq(fields[self.config.hashtag_indedx])
-            self.sparse_word_threshold = get_sparse_threshold(self.word2freq.values(), self.config.sparse_word_percent)
-            self.sparse_user_threshold = get_sparse_threshold(self.user2freq.values(), self.config.sparse_user_percent)
-            self.sparse_hashtag_threshold = get_sparse_threshold(self.hashtag2freq.values(),
-                                                                 self.config.sparse_hashtag_percent)
-            return raw_dataset
-            # Implement more updation
-        elif for_type == 'test':
-            tmp = []
-            for sample in raw_dataset:
-                if sample[self.config.hashtag_index] in self.hashtag2index:
-                    tmp.append(sample)
-                else:
-                    pass
-            self.hashtag_coverage = 1.0 * len(tmp) / len(raw_dataset)
-            return numpy.asarray(tmp)
-        else:
-            raise ValueError('for_type should be either "train" or "test"')
-
-    def _map(self, raw_dataset, for_type='train'):
-        assert raw_dataset is not None or len(raw_dataset) > 0
-        fields = zip(*raw_dataset)
-        users = numpy.array(
-            [self._get_user_index(user, for_type) for user in fields[self.config.user_index]],
-            dtype=self.config.int_type)
-        hashtags = numpy.array([self._get_hashtag_index(hashtag, for_type) for hashtag in
-                                fields[self.config.hashtag_index]],
-                               dtype=self.config.int_type)
-
-        text_idxes = self._turn_word2index(fields[self.config.text_index], for_type)
-        return (users,) + text_idxes + (hashtags,)
-
-    def _turn_word2index(self, texts, for_type='train'):
-        user_words = []
-        user_word_idxes = []
-        hashtag_words = []
-        hashtag_word_idxes = []
-        sparse_words = []
-        sparse_word_idxes = []
-        text_idxes = []
-        for words in texts:
-            users = []
-            user_idx = []
-            hashtags = []
-            hashtag_idx = []
-            sparse_word = []
-            sparse_word_idx = []
-            text = []
-            for i in range(len(words)):
-                if words[i].startswith('@'):
-                    user_name = words[i][1:]
-                    if user_name in self.user_name2id:
-                        users.append(self._get_user_index(self.user_name2id[user_name], for_type))
-                        text.append(0)
-                        user_idx.append(i)
-                    else:
-                        sparse_word.append(numpy.array([self._get_char_index(c) for c in words[i]],
-                                                       dtype=self.config.int_type))
-                        sparse_word_idx.append(i)
-                        text.append(0)
-                elif words[i].startswith('#'):
-                    if len(words[i]) > 1:
-                        hashtag = words[i][1:]
-                        if hashtag in self.hashtag2index:
-                            hashtags.append(self.hashtag2index[hashtag])
-                            text.append(0)
-                            hashtag_idx.append(i)
-                        else:
-                            sparse_word.append(numpy.array([self._get_char_index(c) for c in words[i]],
-                                                           dtype=self.config.int_type))
-                            sparse_word_idx.append(i)
-                            text.append(0)
-                    else:
-                        text.append(self._get_word_index(words[i], for_type))
-                elif self._is_sparse_word(words[i]):
-                    sparse_word.append(numpy.array([self._get_char_index(c) for c in words[i]],
-                                                   dtype=self.config.int_type))
-                    sparse_word_idx.append(i)
-                    text.append(0)
-                else:
-                    text.append(self._get_word_index(words[i], for_type))
-            user_words.append(numpy.array(users, dtype=self.config.int_type))
-            hashtag_words.append(numpy.array(hashtags, dtype=self.config.int_type))
-            text_idxes.append(numpy.array(text, dtype=self.config.int_type))
-            user_word_idxes.append(numpy.array(user_idx, dtype=self.config.int_type))
-            hashtag_word_idxes.append(numpy.array(hashtag_idx, dtype=self.config.int_type))
-            sparse_word_idxes.append(numpy.array(sparse_word_idx, dtype=self.config.int_type))
-            sparse_words.append(sparse_word)
-        return (
-        text_idxes, user_words, user_word_idxes, hashtag_words, hashtag_word_idxes, sparse_words, sparse_word_idxes)
-
-    def _extract_hashtag2freq(self, hashtag):
-        assert  hashtag is not None
-        id, count = numpy.unique(numpy.array(hashtag), return_counts=True)
-        return dict(zip(id,count))
-
-    def _is_sparse_hashtag(self,hashtag):
-        if hashtag in self.hashtag2freq and self.hashtag2freq[hashtag] > self.sparse_hashtag_threshold:
-            return False
-        else:
-            return True
-
-    def _get_hashtag_index(self, hashtag, for_type='train'):
-        if for_type == 'test' and hashtag not in self.hashtag2index:
-            raise ValueError('The subclass of EUTHD should remove samples'
-                             ' for testing whose hashtag is not in training dataset!')
-        elif self._is_sparse_hashtag(hashtag):
-            return self.hashtag2index['<unk>']
-        else:
-            return self._get_index(hashtag, self.hashtag2index, for_type)
-
-
 class EMicroblogTHD(EUTHD):
     def __init__(self, config):
         super(EUTHD, self).__init__(config)
         # Dictionary
-        self.user2index = {'<unk>': 0}  # Deal with OV when testing
         self.hashtag2index = {}
         self.word2index = {}
         self.char2index = {'<unk>': 0}
@@ -1184,6 +973,10 @@ class EMicroblogTHD(EUTHD):
                 self.word2index = dataset_prarms['word2index']
                 self.hashtag2index = dataset_prarms['hashtag2index']
                 self.char2index = dataset_prarms['char2index']
+        else:
+            self.hashtag2index = {'<unk>':0}
+            self.word2index = {}
+            self.char2index = {'<unk>': 0}
 
     @abstractmethod
     def get_parameter_to_save(self):
@@ -1298,8 +1091,7 @@ class TimeLineUTHD(UTHD):
     '''
     def __init__(self, config):
         super(TimeLineUTHD, self).__init__(config)
-        self.hashtag2date = {}
-
+    #TODO: adjust initialization method
     def _initialize(self):
         if os.path.exists(self.config.model_path):
             with open(self.config.model_path, 'rb') as f:
@@ -1309,6 +1101,11 @@ class TimeLineUTHD(UTHD):
                 self.word2index = dataset_prarms['word2index']
                 self.hashtag2index = dataset_prarms['hashtag2index']
                 self.hashtag2date = dataset_prarms['hashtag2date']
+        else:
+            self.user2index = {'<unk>': 0}  # Deal with OV when testing
+            self.hashtag2index = {'<unk>': 0}
+            self.word2index = {'<unk>': 0}
+            self.hashtag2date = {}
 
     def get_parameter_to_save(self):
         '''
@@ -1361,20 +1158,15 @@ class TimeLineEUTHD(EUTHD):
     '''
     def __init__(self, config):
         super(TimeLineEUTHD, self).__init__(config)
-        self.hashtag2date = {}
 
     def _initialize(self):
-        with open(self.config.user_name2id_path, 'rb') as f:
-            self.user_name2id = cPickle.load(f)
+        dataset_prarms = super(TimeLineEUTHD, self)._initialize()
         if os.path.exists(self.config.model_path):
-            with open(self.config.model_path, 'rb') as f:
-                cPickle.load(f)
-                dataset_prarms = cPickle.load(f)
-                self.user2index = dataset_prarms['user2index']
-                self.word2index = dataset_prarms['word2index']
-                self.hashtag2index = dataset_prarms['hashtag2index']
-                self.hashtag2date = dataset_prarms['hashtag2date']
-                self.char2index = dataset_prarms['char2index']
+            self.hashtag2date = dataset_prarms['hashtag2date']
+            return dataset_prarms
+        else:
+            self.hashtag2date = {}
+            return None
 
     def get_parameter_to_save(self):
         '''
@@ -1386,13 +1178,9 @@ class TimeLineEUTHD(EUTHD):
         return dic
 
     def _update_before_transform(self, raw_dataset, for_type = 'train'):
+        raw_dataset = super(TimeLineEUTHD, self)._update_before_transform(raw_dataset, for_type)
         if for_type == 'train':
             fields = zip(*raw_dataset)
-            self.word2freq = self._extract_word2freq(fields[self.config.text_index])
-
-            self.sparse_word_threshold = get_sparse_threshold(self.word2freq.values(),
-                                                                    self.config.sparse_word_percent)
-
             dates = fields[self.config.date_index]
             last_date = max(dates)
             expire_date = last_date-datetime.timedelta(days = self.config.time_window)
@@ -1410,7 +1198,6 @@ class TimeLineEUTHD(EUTHD):
                         self.hashtag2date[hashtag] = date
                 else:
                     pass
-
             for hashtag, date in self.hashtag2date.items():
                 if date <= expire_date:
                     self.hashtag2index.pop(hashtag,None)
@@ -1419,17 +1206,8 @@ class TimeLineEUTHD(EUTHD):
                     pass
             self.hashtag_coverage = 1.
             return raw_dataset
-        elif for_type == 'test':
-            tmp = []
-            for sample in raw_dataset:
-                if sample[self.config.hashtag_index] in self.hashtag2index:
-                    tmp.append(sample)
-                else:
-                    pass
-            self.hashtag_coverage = 1.0 * len(tmp) / len(raw_dataset)
-            return numpy.asarray(tmp)
         else:
-            raise ValueError('for_type should be only "train" or "test"')
+            return raw_dataset
 
 
 #region Deprecated

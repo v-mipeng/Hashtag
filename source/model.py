@@ -38,7 +38,7 @@ class UTHM(object):
         # Define inputs
         self._define_inputs()
         self._build_bricks()
-        self._set_OV_value()
+        # self._set_OV_value()
         # Transpose text
         self.text = self.text.dimshuffle(1, 0)
         self.text_mask = self.text_mask.dimshuffle(1, 0)
@@ -82,20 +82,15 @@ class UTHM(object):
 
     def _set_OV_value(self):
         # Set embedding of OV words and users
-        W = self.word_embed.W.get_value()
-        W[self.dataset.word2index['<unk>']] = 0.
-        self.word_embed.W.set_value(W)
-        W = self.user_embed.W.get_value()
-        W[self.dataset.user2index['<unk>']] = 0.
-        self.user_embed.W.set_value(W)
+        pass
 
     def _get_cost(self, input_vec, *args):
         preds = self._get_pred_dist(input_vec)
         cost = Softmax().categorical_cross_entropy(self.hashtag, preds).mean()
         max_index = preds.argmax(axis=1)
         cost.name = 'cost'
-        ranks = tensor.argsort(preds, axis=1)[::-1]
-        top1_recall = tensor.eq(self.hashtag, ranks[:, 0]).mean()
+        ranks = tensor.argsort(preds, axis=1)[:,::-1]
+        top1_recall = tensor.eq(self.hashtag,ranks[:,0]).mean()
         top10_recall = tensor.sum(tensor.eq(ranks[:, 0:self.rank], self.hashtag[:, None]), axis=1).mean()
         top1_recall.name = "top1_recall"
         top10_recall.name = "top10_recall"
@@ -109,10 +104,10 @@ class UTHM(object):
         return tensor.dot(input_vec, self.hashtag_embed.W.T)
 
     def _get_test_cost(self, input_vec):
-        idx = (input_vec.shape[0]*self.config.sample_percent_for_test).astype('int32')
+        idx = tensor.ceil(input_vec.shape[0]*self.config.sample_percent_for_test).astype('int32')
         input_vec = input_vec[0:idx]
         preds = self._get_pred_dist(input_vec)
-        ranks = tensor.argsort(preds, axis=1)[::-1]
+        ranks = tensor.argsort(preds, axis=1)[:,::-1]
         top1_recall = tensor.eq(self.hashtag[0:idx], ranks[:, 0]).mean()
         top10_recall = tensor.sum(tensor.eq(ranks[:, 0:self.rank], self.hashtag[0:idx, None]), axis=1).mean()
         top1_recall.name = "top1_recall"
@@ -219,13 +214,8 @@ class EUTHM(BiasUTHM):
         self.rnn.initialize()
 
     def _set_OV_value(self):
-        # Set embedding of OV characters and users
-        W = self.char_embed.W.get_value()
-        W[self.dataset.char2index['<unk>']] = 0.
-        self.char_embed.W.set_value(W)
-        W = self.user_embed.W.get_value()
-        W[self.dataset.user2index['<unk>']] = 0.
-        self.user_embed.W.set_value(W)
+        '''Train a <unk> representation'''
+        pass
 
     def _apply_user_word(self, text_vec):
         user_word_vec = tensor.dot(self.user_embed.apply(self.user_word), self.user2word.T)
@@ -414,7 +404,6 @@ class CNNEUTHM(EUTHM):
             std=numpy.sqrt(2) / numpy.sqrt(self.config.word_embed_dim + self.config.lstm_dim))
         self.mlstm.biases_init = Constant(0)
         self.mlstm.initialize()
-
 
 
 class TUTHM(UTHM):

@@ -268,6 +268,9 @@ def get_sparse_threshold(freq, sparse_percent):
     threshold = int(total * sparse_percent)
     min_index = numpy.argmin(numpy.abs(threshold - cum_num))
     if cum_num[min_index] > threshold:
-        return num[numpy.max(min_index - 1, 0)]
+        if min_index > 0:
+            return num[min_index - 1]
+        else:
+            return num[0]
     else:
         return num[min_index]

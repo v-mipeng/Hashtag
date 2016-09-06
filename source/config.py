@@ -64,15 +64,15 @@ class UTHC(BasicConfig):
 
     #sparse word threshold
     #TODO: adjust sparse_word_percent
-    sparse_word_percent = 0.005
-    sparse_user_percent = 0.005
-    sparse_hashtag_percent = 0.005
+    sparse_word_percent = 0.01
+    sparse_user_percent = 0.01
+    sparse_hashtag_percent = 0.01
 
 
     # begin date
     begin_date = None
 
-    time_window = 10
+    time_window = 30
     # tolerate time for validation
     tolerate_time = 5
 
@@ -113,6 +113,11 @@ class EUTHC(UTHC):
     char_embed_dim = 10
     # character reading dimention
     char_rnn_dim = 10
+
+
+class TimeLineEUTHC(EUTHC):
+    model_path = os.path.join(BasicConfig.project_dir, 'output/model/TimeLineEUTH/TimeLineEUTH.pkl')
+
 
 
 class EMicroblogTHC(EUTHC):
