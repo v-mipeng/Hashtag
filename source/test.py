@@ -1,43 +1,16 @@
-from abc import ABCMeta, abstractmethod, abstractproperty
-
-class A(object):
-    def __init__(self):
-        pass
-    @abstractmethod
-    def f_a(self):
-        print('in class A')
-
-class B(A):
-    def __init__(self):
-        super(B, self).__init__()
-        pass
-
-    # @abstractmethod
-    # def f_a(self):
-    #     print('in class B')
-
-class C(B):
-    def __init__(self):
-        super(C, self).__init__()
-        pass
-
-    def f_a(self):
-        print('in class C')
+import os
+from entrance import *
+from dataset import *
+from config import *
 
 
-class A:
-    def __init__(self):
-        self.one="one"
-class B:
-    def __init__(self):
-        self.two="two"
-
-class C(A,B):
-    def __init__(self):
-
-        A.__init__(self)
-        B.__init__(self)
-    def printselfnum(self):
-        print(self.one,self.two)
-c=C()
-c.printselfnum()
+if __name__ ==  "__main__":
+    config = UTHC()
+    dataset = RUTHD(config)
+    raw_dataset = dataset.get_dataset(reference_date='FIRST_DAY', date_offset=config.time_window-1, duration=config.time_window)
+    fields = zip(*raw_dataset)
+    texts = fields[config.text_index]
+    hashtags = fields[config.hashtag_index]
+    with open(os.path.join(config.project_dir, 'data/tweet/first_10_days.txt'), 'w+') as writer:
+        for text,hashtag in zip(texts,hashtags):
+            writer.write("{0}\n{1}\n".format(text, hashtag))

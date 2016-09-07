@@ -839,12 +839,9 @@ class EUTHD(UTHD):
     def _map(self, raw_dataset, for_type='train'):
         assert raw_dataset is not None or len(raw_dataset) > 0
         fields = zip(*raw_dataset)
-        try:
-            users = numpy.array(
-                [self._get_user_index(user, for_type) for user in fields[self.config.user_index]],
-                dtype=self.config.int_type)
-        except Exception as e:
-            pass
+        users = numpy.array(
+            [self._get_user_index(user, for_type) for user in fields[self.config.user_index]],
+            dtype=self.config.int_type)
         hashtags = numpy.array([self._get_hashtag_index(hashtag, for_type) for hashtag in
                                 fields[self.config.hashtag_index]],
                                dtype=self.config.int_type)

@@ -261,16 +261,29 @@ def get_sparse_threshold(freq, sparse_percent):
     '''
     Get the frequency threshold. Word with its frequency below the threshold will be treated as sparse word
     '''
+    assert  sparse_percent < 1.
     num = numpy.array(freq)
     num.sort()
     total = num.sum()
     cum_num = num.cumsum()
     threshold = int(total * sparse_percent)
     min_index = numpy.argmin(numpy.abs(threshold - cum_num))
-    if cum_num[min_index] > threshold:
-        if min_index > 0:
-            return num[min_index - 1]
+    sparse_threshold = 0.
+    if min_index == 0:
+        if threshold < cum_num[0]:
+            return num[0]-1
         else:
-            return num[0]
+            if num[0] == num[1]:
+                return num[0]-1
+            else:
+                return num[0]
+    elif cum_num[min_index] > threshold:
+        if num[min_index] == num[min_index-1]:
+            return num[min_index]-1
+        else:
+            return num[min_index-1]
     else:
-        return num[min_index]
+        if num[min_index] == num[min_index+1]:
+            return num[min_index]-1
+        else:
+            return num[min_index]

@@ -487,6 +487,8 @@ class TimeLineEUTHE(UTHE):
                 rvs = numpy.random.uniform(low=0., high=1., size=len(tmp))
                 train_raw_dataset = tmp[rvs > self.config.valid_percent]
                 valid_raw_dataset = tmp[rvs <= self.config.valid_percent]
+            if len(train_raw_dataset) == 0 or len(valid_raw_dataset) == 0:
+                continue
             train_stream = self.dataset.get_train_stream(train_raw_dataset)
             valid_stream = self.dataset.get_test_stream(valid_raw_dataset)
             print("Train on {0} hashtags\n".format(len(self.dataset.hashtag2index.keys())))
