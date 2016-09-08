@@ -426,42 +426,6 @@ class RUTHD(object):
         return self.raw_dataset[idxes]
 
 
-class RMicroblogDataset(object):
-    def __init__(self, config, microblog_dataset = None):
-        # Dictionary
-        self.config = config
-        self.raw_dataset = None
-        if microblog_dataset is not None:
-            self.prepare(raw_dataset = microblog_dataset)
-
-    def prepare(self, raw_dataset = None, data_path=None):
-        '''
-        Prepare dataset
-        :param data_path:
-        :return:
-        '''
-        if data_path is None and self.raw_dataset is None:
-            data_path = self.config.train_path
-        print("Preparing dataset...")
-        # Load pickled dataset
-        if raw_dataset is None:
-            with open(data_path, 'rb') as f:
-                self.raw_dataset = cPickle.load(f)
-        else:
-            self.raw_dataset = raw_dataset
-        fields = zip(*self.raw_dataset)
-        print("Done!")
-
-    def get_dataset(self):
-        '''
-        Text    TAB     Hashtag
-        :return:
-        '''
-        if self.raw_dataset is None:
-            self.prepare()
-        return self.raw_dataset
-
-
 class BUTHD(object):
 
     def __init__(self, config):
@@ -873,7 +837,7 @@ class EUTHD(UTHD):
                         text.append(0)
                         user_idx.append(i)
                     else:
-                        sparse_word.append(numpy.array([self._get_char_index(c) for c in words[i]],
+                        sparse_word.append(numpy.array([self._get_char_index(c, for_type) for c in words[i]],
                                                        dtype=self.config.int_type))
                         sparse_word_idx.append(i)
                         text.append(0)
@@ -892,7 +856,7 @@ class EUTHD(UTHD):
                     else:
                         text.append(self._get_word_index(words[i], for_type))
                 elif self._is_sparse_word(words[i]):
-                    sparse_word.append(numpy.array([self._get_char_index(c) for c in words[i]],
+                    sparse_word.append(numpy.array([self._get_char_index(c, for_type) for c in words[i]],
                                                    dtype=self.config.int_type))
                     sparse_word_idx.append(i)
                     text.append(0)
@@ -942,213 +906,6 @@ class EUTHD(UTHD):
         return stream
 
 
-class EMicroblogTHD(EUTHD):
-    def __init__(self, config):
-        super(EUTHD, self).__init__(config)
-        # Dictionary
-        self.hashtag2index = {}
-        self.word2index = {}
-        self.char2index = {'<unk>': 0}
-        # Frequency
-        self.word2freq = {}
-        self.user2freq = {}
-        self.hashtag_coverage = 1.
-        # Integer. Word whose frequency is less than the threshold will be stemmed
-        self.sparse_word_threshold = 0
-        self.sparse_user_threshold = 0
-        # (1D numpy array, 1D numpy array). Storing hashtag id and hashtag normed number pair
-        self.provide_souces = ('text', 'sparse_word', 'sparse_word_idx', 'hashtag')
-        self.char_sources = ('sparse_word',)
-        self.char_idx_sources = ('sparse_word_idx',)
-
-    @abstractmethod
-    def _initialize(self):
-        if os.path.exists(self.config.model_path):
-            with open(self.config.model_path, 'rb') as f:
-                cPickle.load(f)
-                dataset_prarms = cPickle.load(f)
-                self.word2index = dataset_prarms['word2index']
-                self.hashtag2index = dataset_prarms['hashtag2index']
-                self.char2index = dataset_prarms['char2index']
-        else:
-            self.hashtag2index = {'<unk>':0}
-            self.word2index = {}
-            self.char2index = {'<unk>': 0}
-
-    @abstractmethod
-    def get_parameter_to_save(self):
-        '''
-        Return parameters that need to be saved with model
-        :return: OrderedDict
-        '''
-        return OrderedDict(
-            {'hashtag2index': self.hashtag2index, 'word2index': self.word2index,
-             'char2index': self.char2index})
-
-    @abstractmethod
-    def _update_before_transform(self, raw_dataset, for_type='train'):
-        '''
-        Do updation beform transform raw_dataset into index representation dataset
-        :param raw_dataset:
-        :param for_type: 'train' if the data is used fof training or 'test' for testing
-        :return: a new raw_dataset
-        '''
-        if for_type == 'train':
-            fields = zip(*raw_dataset)
-            self.word2freq = self._extract_word2freq(fields[self.config.text_index])
-
-            self.sparse_word_threshold = get_sparse_threshold(self.word2freq.values(),
-                                                              self.config.sparse_word_percent)
-
-            self.hashtag_coverage = 1.
-            return raw_dataset
-        elif for_type == 'test':
-            tmp = []
-            for sample in raw_dataset:
-                if sample[self.config.hashtag_index] in self.hashtag2index:
-                    tmp.append(sample)
-                else:
-                    pass
-            self.hashtag_coverage = 1.0 * len(tmp) / len(raw_dataset)
-            return numpy.asarray(tmp)
-        else:
-            raise ValueError('for_type should be only "train" or "test"')
-
-    @abstractmethod
-    def _update_after_transform(self, dataset, for_type='train'):
-        '''
-        Do updation after transform raw_dataset into index representation dataset
-        :param for_type: 'train' if the data is used fof training or 'test' for testing
-        :param dataset: tranformed dataset
-        :return: a new transformed dataset
-        '''
-        return dataset
-
-    def _extract_word2freq(self, texts):
-        '''
-        Count word frequency
-        :param texts:
-        :return:
-        '''
-        return super(EUTHD, self)._extract_word2freq(texts)
-
-    def _map(self, raw_dataset, for_type='train'):
-        assert raw_dataset is not None or len(raw_dataset) > 0
-        fields = zip(*raw_dataset)
-        hashtags = numpy.array([self._get_hashtag_index(hashtag, for_type) for hashtag in
-                                fields[self.config.hashtag_index]],
-                               dtype=self.config.int_type)
-
-        text_idxes = self._turn_word2index(fields[self.config.text_index], for_type)
-        return text_idxes + (hashtags,)
-
-    def _turn_word2index(self, texts, for_type='train'):
-        sparse_words = []
-        sparse_word_idxes = []
-        text_idxes = []
-        for words in texts:
-            sparse_word = []
-            sparse_word_idx = []
-            text = []
-            for i in range(len(words)):
-                if self._is_sparse_word(words[i]):
-                    sparse_word.append(numpy.array([self._get_char_index(c) for c in words[i]],
-                                                   dtype=self.config.int_type))
-                    sparse_word_idx.append(i)
-                    text.append(0)
-                else:
-                    text.append(self._get_word_index(words[i], for_type))
-            text_idxes.append(numpy.array(text, dtype=self.config.int_type))
-            sparse_word_idxes.append(numpy.array(sparse_word_idx, dtype=self.config.int_type))
-            sparse_words.append(sparse_word)
-        return (text_idxes, sparse_words, sparse_word_idxes)
-
-    def _construct_shuffled_stream(self, dataset):
-        '''
-        Construc a shuffled stream from given dataset
-        :param dataset:
-        :return:
-        '''
-        stream = super(EUTHD, self)._construct_shuffled_stream(dataset)
-        stream = CharEmbedding(stream, char_source=self.char_sources, char_idx_source=self.char_idx_sources)
-        return stream
-
-    def _construct_sequencial_stream(self, dataset):
-        '''Construct sequencial stream.
-        This is usually used for testing and prediction.
-        '''
-        stream = super(EUTHD, self)._construct_sequencial_stream(dataset)
-        stream = CharEmbedding(stream, char_source=self.char_sources, char_idx_source=self.char_idx_sources)
-        return stream
-
-
-class TimeLineUTHD(UTHD):
-    '''
-    Dataset for training day by day with only user, word and hashtag embedding
-    '''
-    def __init__(self, config):
-        super(TimeLineUTHD, self).__init__(config)
-    #TODO: adjust initialization method
-    def _initialize(self):
-        if os.path.exists(self.config.model_path):
-            with open(self.config.model_path, 'rb') as f:
-                cPickle.load(f)
-                dataset_prarms = cPickle.load(f)
-                self.user2index = dataset_prarms['user2index']
-                self.word2index = dataset_prarms['word2index']
-                self.hashtag2index = dataset_prarms['hashtag2index']
-                self.hashtag2date = dataset_prarms['hashtag2date']
-        else:
-            self.user2index = {'<unk>': 0}  # Deal with OV when testing
-            self.hashtag2index = {'<unk>': 0}
-            self.word2index = {'<unk>': 0}
-            self.hashtag2date = {}
-
-    def get_parameter_to_save(self):
-        '''
-        Return parameters that need to be saved with model
-        :return: OrderedDict
-        '''
-        dic = super(TimeLineUTHD, self).get_parameter_to_save()
-        dic['hashtag2date'] = self.hashtag2date
-        return dic
-
-    def _update_before_transform(self, raw_dataset, for_type = 'train'):
-        raw_dataset = super(TimeLineUTHD, self)._update_before_transform(raw_dataset, for_type)
-        if for_type == 'train':
-            fields = zip(*raw_dataset)
-            dates = fields[self.config.date_index]
-            last_date = max(dates)
-            expire_date = last_date-datetime.timedelta(days = self.config.time_window)
-
-            hashtags = fields[self.config.hashtag_index]
-
-            for hashtag, date in zip(hashtags,dates):
-                if date > expire_date:
-                    if hashtag in self.hashtag2date:
-                        if self.hashtag2date[hashtag] < date:
-                            self.hashtag2date[hashtag] = date
-                        else:
-                            pass
-                    else:
-                        self.hashtag2date[hashtag] = date
-                else:
-                    pass
-
-            for hashtag, date in self.hashtag2date.items():
-                if date <= expire_date:
-                    self.hashtag2index.pop(hashtag,None)
-                    self.hashtag2date.pop(hashtag, None)
-                else:
-                    pass
-            self.hashtag_coverage = 1.
-            return raw_dataset
-        elif for_type == 'test':
-            return raw_dataset
-        else:
-            raise ValueError('for_type should be only "train" or "test"')
-
-
 class TimeLineEUTHD(EUTHD):
     '''
     Dataset for training day by day
@@ -1175,26 +932,22 @@ class TimeLineEUTHD(EUTHD):
         return dic
 
     def _update_before_transform(self, raw_dataset, for_type = 'train'):
+        '''
+
+        :param raw_dataset: The dataset of current day
+        :param for_type:
+        :return:
+        '''
         raw_dataset = super(TimeLineEUTHD, self)._update_before_transform(raw_dataset, for_type)
         if for_type == 'train':
             fields = zip(*raw_dataset)
             dates = fields[self.config.date_index]
-            last_date = max(dates)
-            expire_date = last_date-datetime.timedelta(days = self.config.time_window)
-
+            assert (numpy.array(dates) != dates[0]).sum() == 0
+            current_date = fields[self.config.date_index][0]
+            expire_date = current_date-datetime.timedelta(days = self.config.time_window)
             hashtags = fields[self.config.hashtag_index]
-
-            for hashtag, date in zip(hashtags,dates):
-                if date > expire_date:
-                    if hashtag in self.hashtag2date:
-                        if self.hashtag2date[hashtag] < date:
-                            self.hashtag2date[hashtag] = date
-                        else:
-                            pass
-                    else:
-                        self.hashtag2date[hashtag] = date
-                else:
-                    pass
+            for hashtag in hashtags:
+                self.hashtag2date[hashtag] = current_date
             for hashtag, date in self.hashtag2date.items():
                 if date <= expire_date:
                     self.hashtag2index.pop(hashtag,None)
@@ -1202,617 +955,101 @@ class TimeLineEUTHD(EUTHD):
                 else:
                     pass
             self.hashtag_coverage = 1.
-            return raw_dataset
         else:
-            return raw_dataset
-
-
-#region Deprecated
-class SUTHD(object):
-    '''
-    Sequential user-text-hahstag dataset.
-    '''
-    def __init__(self, config, dataset):
-        '''
-        Sequentialize given dataset with given config
-        :param config: class in config module
-        :param dataset: subclass of BUTHD
-        '''
-        self.config = config
-        self.date_iterator = None
-        self.begin_date = config.begin_date
-        self.dataset = dataset
-
-    def __iter__(self, ):
-        self.dataset.raw_dataset.prepare()
-        return self
-
-    def next(self):
-        if self.date_iterator is None:
-            if self.begin_date is not None:
-                self.begin_offset = (self.begin_date -self.dataset.raw_dataset.first_date).days
-            else:
-                self.begin_offset = self.config.duration
-            if self.config.mode == 'debug':
-                self.date_iterator = iter(range(self.begin_offset, min(self.config.duration+10,self.dataset.raw_dataset.date_span)))
-            else:
-                self.date_iterator = iter(range(self.begin_offset, self.dataset.raw_dataset.date_span))
-        try:
-            date_offset = self.date_iterator.next()
-            return self.get_stream(date_offset)
-        except StopIteration as e:
-            self.date_iterator = None
-            raise e
-
-    def get_stream(self, date_offset):
-        train_stream = self.dataset.get_shuffled_stream(reference_date= self.dataset.raw_dataset.FIRST_DAY,
-                                                        date_offset = date_offset-1,
-                                                        duration = self.config.duration,
-                                                        update= True)
-        valid_stream = self.dataset.get_shuffled_stream(reference_date= self.dataset.raw_dataset.FIRST_DAY,
-                                                        date_offset = date_offset,
-                                                        duration = 1,
-                                                        update = False)
-
-        return train_stream, valid_stream, self.dataset.raw_dataset.first_date+datetime.timedelta(days = date_offset)
-
-
-
-class NUTHD(BUTHD):
-    '''
-    Negtive sampling UTHD
-    '''
-    def __init__(self, config, raw_dataset = None):
-        super(NUTHD, self).__init__(config, raw_dataset)
-        # Dictionary
-        self.user2index = {}
-        self.hashtag2index = {}
-        self.word2index = {}
-        # Frequency
-        self.word2freq = {}
-        self.user2freq = {}
-        self.hashtag2freq = {}
-        self.last_hashtag2freq = {}
-        self.cum_hashtag2freq = {}
-        # Integer. Word whose frequency is less than the threshold will be stemmed
-        self.sparse_word_threshold = 0
-        self.sparse_hashtag_threshold = 0
-        self.sparse_user_threshold = 0
-        # (1D numpy array, 1D numpy array). Storing hashtag id and hashtag normed number pair
-        self.hashtag_dis_table = None
-        self.sample_from = []
-        self.sample_sources = ['hashtag']
-        self.sample_sizes = [config.hashtag_sample_size]
-        self.raw_dataset = RUTHD(config)
-        self._initialize()
-
-    def _initialize(self):
-        '''
-        Load dataset information of last day
-        Initialize fields: user2index, hashtag2index and so on
-        '''
-        if os.path.exists(self.config.model_path):
-            with open(self.config.model_path, 'rb') as f:
-                cPickle.load(f)
-                dataset_prarms = cPickle.load(f)
-                self.user2index = dataset_prarms['user2index']
-                self.word2index = dataset_prarms['word2index']
-                self.hashtag2index = dataset_prarms['hashtag2index']
-                self.last_hashtag2freq = dataset_prarms['cum_hashtag2freq']
-
-    def get_parameter_to_save(self):
-        '''
-        Return parameters that need to be saved with model
-        :return:
-        '''
-        return OrderedDict(
-            {'hashtag2index': self.hashtag2index, 'word2index': self.word2index, 'user2index': self.user2index,
-             'word2freq': self.word2freq, 'hashtag2freq': self.hashtag2freq, 'cum_hashtag2freq': self.cum_hashtag2freq, 'user2freq': self.user2freq})
-
-    def get_shuffled_stream_by_date(self, date, update=False):
-        self.raw_dataset.prepare()
-        return self.get_shuffled_stream(reference_date="FIRST_DAY",
-                                        date_offset=(date-self.raw_dataset.first_date).days,
-                                        duration=1,update=update)
-
-    def get_shuffled_stream(self, reference_date="LAST_DAY", date_offset=0, duration=3, update=True):
-        '''
-        Get shuffled stream of the dataset constructed with samples posted within given date duration
-        date duration :
-            if reference_date is FIRST_DAY:
-                duration = 9first_day + date_offset - duration, first_day + date_offset]
-            else:
-                duration = 9last_day - date_offset - duration, last_day - date_offset)
-        :param reference_date: 'FIRST_DAY' OR 'LAST_DAT', 'FIRST_DAY' (by default)
-        :param date_offset: integer type, 0 (by default)
-        :param duration: integer type, 3 (by default)
-        :return: a shuffled stream constructed from the items of the given day
-        '''
-        dataset = self._get_dataset(reference_date=reference_date, date_offset=date_offset,
-                                    duration=duration, update=update)
-        self.sample_from.append(self.hashtag_dis_table)
-        return self._construct_shuffled_stream(dataset)
-
-    def get_sequencial_stream(self, reference_date="LAST_DAY", date_offset=0, duration=3, update=True):
-
-        '''
-        Get sequencial stream of the dataset constructed with samples posted within given date duration
-        date duration :
-            if reference_date is FIRST_DAY:
-                duration = 9first_day + date_offset - duration, first_day + date_offset]
-            else:
-                duration = 9last_day - date_offset - duration, last_day - date_offset]
-        :param reference_date: 'FIRST_DAY' OR 'LAST_DAT', 'LAST_DAT' (by default)
-        :param date_offset: integer type, 0 (by default)
-        :param duration: integer type, 3 (by default)
-        :return: a sequencial stream constructed from the items of the given day
-        '''
-        dataset = self._get_dataset(reference_date=reference_date, date_offset=date_offset,
-                                    duration=duration, update=update)
-        self.sample_from.append(self.hashtag_dis_table)
-        return self._construct_sequencial_stream(dataset)
-
-    def _get_dataset(self, reference_date="LAST_DAY", date_offset=0, duration=3, update=True):
-        raw_dataset = self.raw_dataset.get_dataset(reference_date=reference_date, date_offset=date_offset,
-                                                   duration=duration)
-        if update:
-            self._update(raw_dataset)
-        dataset = self._map(raw_dataset, update)
-        return self._construct_dataset(dataset)
-
-    def _update(self, raw_dataset):
-        '''
-        Update dataset information.
-        Extend user2index, word2index, hashtag2index
-        Statistic user, word and hashtag frequence within the raw_dataset
-        :param raw_dataset: ndarray or list
-        '''
-        fields = zip(*raw_dataset)
-        self.word2freq = NUTHD._extract_word2freq(fields[self.config.text_index])
-
-        self.user2freq = NUTHD._extract_user2freq(fields[self.config.user_index])
-
-        self.hashtag2freq = NUTHD._extract_hashtag2freq(fields[self.config.hashtag_index])
-
-        self.cum_hashtag2freq = self._extend_dic(self.last_hashtag2freq, self.hashtag2freq)
-
-        self.sparse_word_threshold = NUTHD._get_sparse_threshold(self.word2freq.values(),
-                                                                self.config.sparse_word_percent)
-        self.sparse_hashtag_threshold = NUTHD._get_sparse_threshold(self.hashtag2freq.values(),
-                                                                   self.config.sparse_hashtag_percent)
-        self.sparse_user_threshold = NUTHD._get_sparse_threshold(self.user2freq.values(),
-                                                                self.config.sparse_hashtag_percent)
-
+            pass
         return raw_dataset
 
-    def _extend_dic(self, original_dic, add_dic):
-        key,value = zip(*add_dic.items())
-        tmp = numpy.array(value)
-        value = (1.0*tmp/tmp.sum()).tolist()
-        add_dic = dict(zip(key,value))
-        new_dic = original_dic.copy()
-        for key, value in add_dic.iteritems():
-            new_dic[key] = value
-        return new_dic
 
-    def _map(self, raw_dataset, update=True):
-        '''
-        Turn string type user, words of context, hashtag representation into index representation.
+class NegTimeLineEUTHD(TimeLineEUTHD):
+    def __init__(self,config):
+        super(NegTimeLineEUTHD, self).__init__(config)
 
-        Note: Implement this function in subclass
-        '''
-        assert raw_dataset is not None or len(raw_dataset) > 0
-        fields = zip(*raw_dataset)
-        users = numpy.array(
-            [self._get_user_index(self._stem_user(user), update) for user in fields[self.config.user_index]],
-            dtype=self.config.int_type)
-        hashtags = numpy.array([self._get_hashtag_index(self._stem_hashtag(hashtag), update) for hashtag in
-                                fields[self.config.hashtag_index]],
-                               dtype=self.config.int_type)
-        texts = [numpy.array([self._get_word_index(self._stem_word(word), update) for word in text],
-                             dtype=self.config.int_type)
-                 for text in fields[self.config.text_index]]
-        if update:
-            self.hashtag_dis_table = self._construct_hashtag_distribution(hashtags)
-        return (users, texts, hashtags)
-
-    def _get_user_index(self, user, update=True):
-        return self._get_index(user, self.user2index, update)
-
-    def _get_hashtag_index(self, hashtag, update=True):
-        return self._get_index(hashtag, self.hashtag2index, update)
-
-    def _get_word_index(self, word, update=True):
-        return self._get_index(word, self.word2index, update)
-
-    def _get_index(self, item, _dic, update=True):
-        if item not in _dic:
-            if update:
-                _dic[item] = len(_dic)
-                return len(_dic) - 1
-            else:
-                # return a value randomly
-                return _dic.values()[numpy.random.randint(low = 0,high=len(_dic),size=1)[0]]
+    def _initialize(self):
+        dataset_prarms = super(NegTimeLineEUTHD, self)._initialize()
+        if os.path.exists(self.config.model_path):
+            self.date2hashtag_freq = dataset_prarms['date2hashtag_freq']
+            self.hashtag_distribution = self._get_hashtag_distribution()
+            return dataset_prarms
         else:
-            return _dic[item]
+            self.date2hashtag_freq = {}
+            return None
 
-    @classmethod
-    def _extract_word2freq(cls, texts):
-        '''
-        Count word frequency
-        :param texts:
-        :return:
-        '''
-        assert texts is not None
-        word2freq = {}
-        for words in texts:
-            for word in words:
-                if word not in word2freq:
-                    word2freq[word] = 1
+    def get_parameter_to_save(self):
+        dic = super(NegTimeLineEUTHD, self).get_parameter_to_save()
+        dic['date2hashtag_freq'] = self.date2hashtag_freq
+        return dic
+
+    def _update_before_transform(self, raw_dataset, for_type = 'train'):
+        raw_dataset = super(NegTimeLineEUTHD, self)._update_before_transform(raw_dataset, for_type)
+        if for_type == 'train':
+            fields = zip(*raw_dataset)
+            current_date = fields[self.config.date_index][0]
+            expire_date = current_date - datetime.timedelta(days=self.config.time_window)
+            for date, _dic in self.date2hashtag_freq.items():
+                if date <= expire_date:
+                    self.date2hashtag_freq.pop(date)
                 else:
-                    word2freq[word] += 1
-        return word2freq
-
-    @classmethod
-    def _extract_user2freq(cls, users):
-        return cls._extract_freq(users)
-
-    @classmethod
-    def _extract_hashtag2freq(cls, hashtags):
-        return cls._extract_freq(hashtags)
-
-    @classmethod
-    def _extract_freq(cls, items):
-        assert items is not None
-        if not isinstance(items, numpy.ndarray):
-            item2freq = {}
-            for item in items:
-                if item not in item2freq:
-                    item2freq[item] = 1
-                else:
-                    item2freq[item] += 1
-            return item2freq
+                    pass
+            self.date2hashtag_freq[current_date] = self.hashtag2freq
         else:
-            return dict(zip(*numpy.unique(items, return_counts=True)))
+            pass
+        return raw_dataset
 
-    @classmethod
-    def _get_sparse_threshold(cls, freq, percent):
-        '''
-        Get the frequency threshold. Word with its frequency below the threshold will be treated as sparse word
-        '''
-        num = numpy.array(freq)
-        num.sort()
-        total = num.sum()
-        cum_num = num.cumsum()
-        threshold = int(total * percent)
-        min_index = numpy.argmin(numpy.abs(threshold - cum_num))
-        if cum_num[min_index] > threshold:
-            return num[numpy.max(min_index - 1, 0)]
+    def _update_after_transform(self, dataset, for_type = 'train'):
+        if for_type == 'train':
+            self.hashtag_distribution = self._get_hashtag_distribution()
         else:
-            return num[min_index]
+            pass
+        return dataset
 
-    def _construct_dataset(self, dataset):
-        return IndexableDataset(indexables=OrderedDict(zip(self.provide_souces, dataset)))
-
-    def _construct_shuffled_stream(self, dataset):
-        '''
-        Construc a shuffled stream from given dataset
-        :param dataset:
-        :return:
-        '''
-        stream = super(NUTHD, self)._construct_sequencial_stream(dataset)
-        self.sample_from.append(self.hashtag_dis_table)
-        stream = NegativeSample(stream,
-                                dist_tables=self.sample_from,
-                                sample_sources=self.sample_sources,
-                                sample_sizes=self.sample_sizes)
-        return stream
-
-    def _construct_sequencial_stream(self, dataset):
-        '''Construct sequencial stream.
-        This is usually used for testing and prediction.
-        '''
-        stream = super(NUTHD, self)._construct_sequencial_stream(dataset)
-        stream = NegativeSample(stream,
-                                dist_tables=self.sample_from,
-                                sample_sources=self.sample_sources,
-                                sample_sizes=self.sample_sizes)
-        return stream
-
-    def _construct_hashtag_distribution(self, *args):
-        '''
-        Build hashtag distribution table
-        '''
-        id = []
-        count = []
+    def _get_hashtag_distribution(self):
         _dic = {}
-        for hashtag, freq in self.cum_hashtag2freq.iteritems():
-            index = self._get_hashtag_index(self._stem_hashtag(hashtag), update=False)
-            if index in _dic:
-                _dic[index] += freq
-            else:
-                _dic[index] = freq
+        for date, hashtag2freq in self.date2hashtag_freq.iteritems():
+            for hashtag, freq in hashtag2freq.iteritems():
+                id = self.hashtag2index.get(hashtag)
+                if id is not None:
+                    if id in _dic:
+                        _dic[id] += freq
+                    else:
+                        _dic[id] = freq
         id, count = zip(*_dic.items())
-        id = numpy.array(id)
-        count = numpy.array(count)
-        count = count ** (3.0 / 4)
-        return (id, count)
-
-    def _stem_word(self, word, update = True):
-        '''
-        Do word stemming
-        :param word: original string type of word
-        :return: stemmed word
-        '''
-        assert word is not None
-        if word in self.word2index:
-            return word
-        elif word in self.word2freq:
-            if self.word2freq[word] > self.sparse_word_threshold:
-                return word
-            else:
-                return '<unk>'
-        else:
-            return '<unk>'
-
-    def _stem_hashtag(self, hashtag, update = True):
-        assert hashtag is not None
-        if hashtag in self.hashtag2index:
-            return hashtag
-        elif hashtag in self.hashtag2freq:
-            if self.hashtag2freq[hashtag] > self.sparse_hashtag_threshold:
-                return hashtag
-            else:
-                return '<unk>'
-        else:
-            return '<unk>'
-
-    def _stem_user(self, user, update = True):
-        assert user is not None
-        if user in self.user2index:
-            return user
-        elif user in self.user2freq:
-            if self.user2freq[user] > self.sparse_user_threshold:
-                return user
-            else:
-                return '<unk>'
-        else:
-            return '<unk>'
-
-
-class FUTHD(BUTHD):
-    '''
-    Full UTHD
-    '''
-    def __init__(self, config, raw_dataset = None):
-        super(FUTHD, self).__init__(config, raw_dataset)
-        # Dictionary
-        self.user2index = {'<unk>':0}   # Deal with OV when testing
-        self.hashtag2index = {}
-        self.word2index = {}
-        self.char2index = {'<unk>':0}
-        # Frequency
-        self.word2freq = {}
-        self.hashtag2day = {}
-        self.hashtag_coverage = 1.
-        # Integer. Word whose frequency is less than the threshold will be stemmed
-        self.sparse_word_threshold = 0
-        # (1D numpy array, 1D numpy array). Storing hashtag id and hashtag normed number pair
-        self.provide_souces = ('user', 'text', 'user_word', 'user_word_idx',
-                               'hashtag_word', 'hashtag_word_idx', 'sparse_word','sparse_word_idx', 'hashtag')
-        self.sparse_pairs = [('user_word','user_word_idx'),
-                             ('hashtag_word', 'hashtag_word_idx')]
-        self.char_sources = ('sparse_word',)
-        self.char_idx_sources = ('sparse_word_idx',)
-
-    def _initialize(self):
-        if os.path.exists(self.config.model_path):
-            with open(self.config.model_path, 'rb') as f:
-                cPickle.load(f)
-                dataset_prarms = cPickle.load(f)
-                self.user2index = dataset_prarms['user2index']
-                self.word2index = dataset_prarms['word2index']
-                self.hashtag2index = dataset_prarms['hashtag2index']
-                self.hashtag2ay = dataset_prarms['hashtag2day']
-                self.char2index = dataset_prarms['char2index']
-        with open(self.config.user_name2id_path, 'rb') as f:
-            self.user_name2id = cPickle.load(f)
-
-    def get_parameter_to_save(self):
-        '''
-        Return parameters that need to be saved with model
-        :return: OrderedDict
-        '''
-        return OrderedDict(
-            {'hashtag2index': self.hashtag2index, 'word2index': self.word2index, 'user2index': self.user2index,
-             'char2index':self.char2index, 'hashtag2day': self.hashtag2day, })
-
-    def _not_update(self, raw_dataset):
-        '''
-        Delete items with hashtag out of vocabulary
-        :param raw_dataset:
-        :return:
-        '''
-        tmp = []
-        for sample in raw_dataset:
-            if sample[self.config.hashtag_index] in self.hashtag2index:
-                tmp.append(sample)
-            else:
-                pass
-        self.hashtag_coverage = 1.0*len(tmp)/len(raw_dataset)
-        return numpy.asarray(tmp)
-
-    def _update(self, raw_dataset):
-        '''
-        Update dataset information.
-        Extend user2index, word2index, hashtag2index
-        Statistic user, word and hashtag frequence within the raw_dataset
-        :param raw_dataset: ndarray or list
-        '''
-        fields = zip(*raw_dataset)
-        self.word2freq = FUTHD._extract_word2freq(fields[self.config.text_index])
-
-        self.sparse_word_threshold = NUTHD._get_sparse_threshold(self.word2freq.values(),
-                                                                self.config.sparse_word_percent)
-
-        new_hashtags = set(fields[self.config.hashtag_index])
-        for hashtag in new_hashtags:
-            self.hashtag2day[hashtag] = 0
-        for hashtag, expire_days in self.hashtag2day.items():
-            expire_days += 1
-            if expire_days > self.config.time_window:
-                self.hashtag2index.pop(hashtag,None)
-                self.hashtag2day.pop(hashtag, None)
-            else:
-                self.hashtag2day[hashtag] = expire_days
-        self.hashtag_coverage = 1.
-        return raw_dataset
-
-    @classmethod
-    def _extract_word2freq(cls, texts):
-        '''
-        Count word frequency
-        :param texts:
-        :return:
-        '''
-        assert texts is not None
-        word2freq = {}
-        for words in texts:
-            for word in words:
-                if (not word.startswith('#')) and (not word.startswith('@')):
-                    if word not in word2freq:
-                        word2freq[word] = 1
-                    else:
-                        word2freq[word] += 1
-                else:
-                    continue
-        if 'Coooooooome' in word2freq:
-            print('yes!')
-        return word2freq
-
-    def _map(self, raw_dataset, update=True):
-        assert raw_dataset is not None or len(raw_dataset) > 0
-        fields = zip(*raw_dataset)
-        users = numpy.array(
-            [self._get_user_index(user, update) for user in fields[self.config.user_index]],
-            dtype=self.config.int_type)
-        hashtags = numpy.array([self._get_hashtag_index(hashtag, update) for hashtag in
-                                fields[self.config.hashtag_index]],
-                               dtype=self.config.int_type)
-
-        text_idxes = self._turn_word2index(fields[self.config.text_index], update)
-        return (users,)+text_idxes+(hashtags,)
-
-    def _turn_word2index(self, texts, update = True):
-        user_words = []
-        user_word_idxes = []
-        hashtag_words = []
-        hashtag_word_idxes = []
-        sparse_words = []
-        sparse_word_idxes = []
-        text_idxes = []
-        for words in texts:
-            users = []
-            user_idx=[]
-            hashtags = []
-            hashtag_idx = []
-            sparse_word = []
-            sparse_word_idx = []
-            text = []
-            for i in range(len(words)):
-                if words[i].startswith('@'):
-                    user_name = words[i][1:]
-                    if user_name in self.user_name2id:
-                        users.append(self._get_user_index(self.user_name2id[user_name],update=update))
-                        text.append(0)
-                        user_idx.append(i)
-                    else:
-                        sparse_word.append(numpy.array([self._get_char_index(c) for c in words[i]],
-                                                   dtype = self.config.int_type))
-                        sparse_word_idx.append(i)
-                        text.append(0)
-                elif words[i].startswith('#'):
-                    if len(words[i]) > 1:
-                        hashtag = words[i][1:]
-                        if hashtag in self.hashtag2index:
-                            hashtags.append(self.hashtag2index[hashtag])
-                            text.append(0)
-                            hashtag_idx.append(i)
-                        else:
-                            sparse_word.append(numpy.array([self._get_char_index(c) for c in words[i]],
-                                                       dtype = self.config.int_type))
-                            sparse_word_idx.append(i)
-                            text.append(0)
-                    else:
-                        text.append(self._get_word_index(words[i], update))
-                elif self._is_sparse_word(words[i]):
-                    sparse_word.append(numpy.array([self._get_char_index(c) for c in words[i]],
-                                                   dtype = self.config.int_type))
-                    sparse_word_idx.append(i)
-                    text.append(0)
-                else:
-                    text.append(self._get_word_index(words[i], update))
-            user_words.append(numpy.array(users, dtype=self.config.int_type))
-            hashtag_words.append(numpy.array(hashtags, dtype=self.config.int_type))
-            text_idxes.append(numpy.array(text, dtype=self.config.int_type))
-            user_word_idxes.append(numpy.array(user_idx, dtype=self.config.int_type))
-            hashtag_word_idxes.append(numpy.array(hashtag_idx, dtype=self.config.int_type))
-            sparse_word_idxes.append(numpy.array(sparse_word_idx, dtype=self.config.int_type))
-            sparse_words.append(sparse_word)
-        return (text_idxes, user_words, user_word_idxes, hashtag_words, hashtag_word_idxes, sparse_words, sparse_word_idxes)
-
-    def _is_sparse_word(self, word):
-        if word in self.word2freq and self.word2freq[word] > self.sparse_word_threshold:
-            return False
-        else:
-            return True
-
-    def _get_char_index(self, char, update = True):
-        return self._get_index(char, self.char2index, update=update)
-
-    def _get_user_index(self, user, update=True):
-        return self._get_index(user, self.user2index, update)
-
-    def _get_hashtag_index(self, hashtag, update=True):
-        if not update and hashtag not in self.hashtag2index:
-            raise ValueError
-        return self._get_index(hashtag, self.hashtag2index, update)
-
-    def _get_word_index(self, word, update=True):
-        return self._get_index(word, self.word2index, update)
-
-    def _get_index(self, item, _dic, update=True):
-        if item not in _dic:
-            if update:
-                _dic[item] = len(_dic)
-                return len(_dic) - 1
-            else:
-                return _dic['<unk>']
-        else:
-            return _dic[item]
+        count = numpy.array(count) ** (3.0 / 4)
+        return (numpy.array(id,dtype='int32'), count)
 
     def _construct_shuffled_stream(self, dataset):
         '''
         Construc a shuffled stream from given dataset
-        :param dataset:
-        :return:
+        :param dataset: fuel Indexable dataset
+        :return: A fuel shuffled stream with basic transformations:
+        1.Sort data by self.compare_source
+        2.Batch dataset
+        3.Add mask on self.need_mask_sources
         '''
-        stream = super(FUTHD, self)._construct_shuffled_stream(dataset)
-        stream = SparseIndex(stream, self.sparse_pairs)
-        stream = CharEmbedding(stream, char_source=self.char_sources, char_idx_source= self.char_idx_sources)
+        stream = super(NegTimeLineEUTHD, self)._construct_shuffled_stream(dataset)
+        sample_from = [self.hashtag_distribution]
+        sample_sources = ['hashtag']
+        sample_sizes = [self.config.hashtag_sample_size]
+        stream = NegativeSample(stream, sample_from, sample_sources, sample_sizes)
         return stream
 
     def _construct_sequencial_stream(self, dataset):
-        '''Construct sequencial stream.
-        This is usually used for testing and prediction.
         '''
-        stream = super(FUTHD, self)._construct_sequencial_stream(dataset)
-        stream = SparseIndex(stream,self.sparse_pairs)
-        stream = CharEmbedding(stream, char_source=self.char_sources, char_idx_source= self.char_idx_sources)
+        Construc a sequencial stream from given dataset
+        :param dataset: fuel Indexable dataset
+        :return: A fuel sequencial stream with basic transformations:
+        1.Sort data by self.compare_source
+        2.Batch dataset
+        3.Add mask on self.need_mask_sources
+        '''
+        stream = super(NegTimeLineEUTHD, self)._construct_shuffled_stream(dataset)
+        sample_from = [self.hashtag_distribution]
+        sample_sources = ['hashtag']
+        sample_sizes = [self.config.hashtag_sample_size]
+        stream = NegativeSample(stream, sample_from, sample_sources, sample_sizes)
         return stream
-#endregion
 
-class TUTHD(NUTHD):
+
+class TUTHD(UTHD):
     def __init__(self, config):
         super(TUTHD, self).__init__(config)
 

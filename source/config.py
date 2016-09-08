@@ -26,10 +26,10 @@ class BasicConfig:
     step_rule = AdaDelta()
 
     # Measured by batches, e.g, valid every 1000 batches
-    print_freq = 10
+    print_freq = 2
     save_freq = 1000
     # Measured by epoch
-    valid_freq = 1
+    valid_freq = 0.5
 
 
 class UTHC(BasicConfig):
@@ -64,7 +64,7 @@ class UTHC(BasicConfig):
 
     #sparse word threshold
     #TODO: adjust sparse_word_percent
-    sparse_word_percent = 0.01
+    sparse_word_percent = 0.05
     sparse_user_percent = 0.01
     sparse_hashtag_percent = 0.01
 
@@ -72,7 +72,11 @@ class UTHC(BasicConfig):
     # begin date
     begin_date = None
 
-    time_window = 30
+    time_window = 10
+
+    # day offset to do prediction
+    T = 10
+
     # tolerate time for validation
     tolerate_time = 5
 
@@ -96,12 +100,6 @@ class UTHC(BasicConfig):
     # endregion
 
 
-class BiasUTHC(UTHC):
-    Model = BiasUTHM
-
-    model_path = os.path.join(BasicConfig.project_dir, "output/model/BiasUTHC/BiasUTHC.pkl")
-
-
 class EUTHC(UTHC):
     Model = EUTHM
 
@@ -116,16 +114,24 @@ class EUTHC(UTHC):
 
 
 class TimeLineEUTHC(EUTHC):
+    Model = AttentionEUTHM
+
     model_path = os.path.join(BasicConfig.project_dir, 'output/model/TimeLineEUTH/TimeLineEUTH.pkl')
 
+    valid_freq = 0.5
 
+    sample_percent_for_test = 0.5
 
-class EMicroblogTHC(EUTHC):
-    Model = EMicroblogTHM
+    tolerate_time = 10
 
-    test_percent = 0.2
+class NegTimeLineEUTHC(TimeLineEUTHC):
+    Model = NegAttentionEUTHM
 
-    model_path = os.path.join(BasicConfig.project_dir, 'output/model/EMicroblogTH/EMicroblogTH.pkl')
+    neg_sample_size = 10
+
+    valid_freq = 0.5
+
+    tolerate_time = 10
 
 
 class TUTHC(UTHC):

@@ -2,6 +2,7 @@ import os
 import codecs
 import ntpath
 import logging
+import numpy
 import logging
 import cPickle
 import theano.tensor as tensor
@@ -120,28 +121,7 @@ class BasicSaveLoadParams(SimpleExtension):
             self.do_save()
 
 
-class BiasSaveLoadParams(BasicSaveLoadParams):
-    '''
-    Initialize hashtag bias
-    '''
-    def __init__(self, load_from, save_to, model, dataset,  **kwargs):
-        super(BiasSaveLoadParams, self).__init__(load_from, save_to, model, dataset,**kwargs)
-
-    def _initialize_hashtag(self, last_model_params, last_dataset_params,
-                            cur_model_params, cur_dataset_params):
-        last_hashtag_embed = last_model_params['/hashtag_embed.W']
-        cur_hashtag_embed = cur_model_params['/hashtag_embed.W']
-        last_hashtag2index = last_dataset_params['hashtag2index']
-        cur_hashtag2index = cur_dataset_params['hashtag2index']
-        last_hashtag_bias = last_model_params['/hashtag_bias.b']
-        cur_hashtag_bias = cur_model_params['/hashtag_bias.b']
-        for hashtag, index in last_hashtag2index.iteritems():
-            if hashtag in cur_hashtag2index:
-                cur_hashtag_embed[cur_hashtag2index[hashtag]] = last_hashtag_embed[index]
-                cur_hashtag_bias[cur_hashtag2index[hashtag]] = last_hashtag_bias[index]
-
-
-class ExtendSaveLoadParams(BiasSaveLoadParams):
+class ExtendSaveLoadParams(BasicSaveLoadParams):
     def __init__(self, load_from, save_to, model, dataset, **kwargs):
         super(ExtendSaveLoadParams, self).__init__(load_from, save_to, model, dataset,**kwargs)
 
@@ -155,7 +135,7 @@ class ExtendSaveLoadParams(BiasSaveLoadParams):
             if char in cur_char2index:
                 cur_char_embed[cur_char2index[char]] = last_char_embed[index]
         for key, value in last_model_params.iteritems():
-            if key not in ("/hashtag_embed.W",'/hashtag_bias.b', "/user_embed.W", '/word_embed.W', '/char_embed.W'):
+            if key not in ("/hashtag_embed.W", "/user_embed.W", '/word_embed.W', '/char_embed.W'):
                 cur_model_params[key] = value
 
 
@@ -167,7 +147,7 @@ class EarlyStopMonitor(DataStreamMonitoring):
         self._evaluator = DatasetEvaluator(variables, updates)
         self.data_stream = data_stream
         self.saver = saver
-        self.best_result = -1.0
+        self.best_result = -numpy.inf
         self.wait_time = 0
         self.tolerate_time = tolerate_time
         self.monitor_variable = monitor_variable

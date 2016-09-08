@@ -3,5 +3,5 @@ from entrance import *
 
 
 if __name__ ==  "__main__":
-    entrance = TimeLineEUTHE()
+    entrance = NegTimeLineEUTHE()
     entrance.train()
