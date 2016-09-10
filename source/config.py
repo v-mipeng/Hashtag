@@ -26,7 +26,7 @@ class BasicConfig:
     step_rule = AdaDelta()
 
     # Measured by batches, e.g, valid every 1000 batches
-    print_freq = 2
+    print_freq = 100
     save_freq = 1000
     # Measured by epoch
     valid_freq = 0.5
@@ -65,8 +65,8 @@ class UTHC(BasicConfig):
     #sparse word threshold
     #TODO: adjust sparse_word_percent
     sparse_word_percent = 0.05
-    sparse_user_percent = 0.01
-    sparse_hashtag_percent = 0.01
+    sparse_user_percent = 0.005
+    sparse_hashtag_percent = 0.005
 
 
     # begin date
@@ -83,6 +83,9 @@ class UTHC(BasicConfig):
     # percent of validation dataset
     valid_percent = 0.2
 
+    # valid on 0.1* size of validation dataset
+    sample_percent_for_test = 0.2
+
     # region Model control parameters
     user_embed_dim = 50
 
@@ -94,8 +97,8 @@ class UTHC(BasicConfig):
 
     lstm_time = 1
 
-    # valid on 0.1* size of validation dataset
-    sample_percent_for_test = 0.2
+    dropout_prob = 0.2
+
 
     # endregion
 
@@ -107,16 +110,20 @@ class EUTHC(UTHC):
 
     user_name2id_path = os.path.join(BasicConfig.project_dir, "data/tweet/user_name2id.pkl")
 
+    train_path = os.path.join(BasicConfig.project_dir, "data/unit test/posts.pkl")
+
     # character embedding dimention
     char_embed_dim = 10
-    # character reading dimention
-    char_rnn_dim = 10
+
+
+class AttentionEUTHC(EUTHC):
+    Model = AttentionEUTHM
 
 
 class TimeLineEUTHC(EUTHC):
     Model = AttentionEUTHM
 
-    model_path = os.path.join(BasicConfig.project_dir, 'output/model/TimeLineEUTH/TimeLineEUTH.pkl')
+    model_path = os.path.join(BasicConfig.project_dir, 'output/model/TAEUTH/TAEUTH.pkl')
 
     valid_freq = 0.5
 
@@ -124,14 +131,21 @@ class TimeLineEUTHC(EUTHC):
 
     tolerate_time = 10
 
+    dropout_prob = 0.5
+
+
 class NegTimeLineEUTHC(TimeLineEUTHC):
     Model = NegAttentionEUTHM
+
+    model_path = os.path.join(BasicConfig.project_dir, 'output/model/NTAEUTH/NTAEUTH.pkl')
 
     neg_sample_size = 10
 
     valid_freq = 0.5
 
-    tolerate_time = 10
+    sample_percent_for_test = 0.5
+
+    tolerate_time = 20
 
 
 class TUTHC(UTHC):

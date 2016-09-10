@@ -1,5 +1,5 @@
 # -*- coding : utf-8 -*-
-#region Import
+# region Import
 import os
 # import third-party module
 import cPickle
@@ -17,15 +17,18 @@ from util.dataset import _balanced_batch_helper
 import theano
 
 from abc import ABCMeta, abstractmethod, abstractproperty
-#endregion
 
-#region Develop
+
+# endregion
+
+# region Develop
 class RUGD(object):
     '''
     Interface of raw user-graph dataset.
     This class provide user and corresponding follewees information on given day.
 
     '''
+
     def __init__(self, config):
         # Root path of user graph dataset
         self.user_graph_dir = config.user_graph_dir
@@ -42,13 +45,13 @@ class RUGD(object):
                 Every field is an integer value.
         '''
         user_graph_path = path.join(self.user_graph_dir, str(date))
-        raw_user_graph =  self._load_user_graph(user_graph_path)
+        raw_user_graph = self._load_user_graph(user_graph_path)
         id2index_path = path.join(self.user_id2index_dir, str(date))
         if path.exists(id2index_path):
             id2index = self._load_id2index(id2index_path)
         else:
             id2index = self._extract_id2index(raw_user_graph)
-        return self._turn_id2index(raw_user_graph, id2index),id2index
+        return self._turn_id2index(raw_user_graph, id2index), id2index
 
     def _load_user_graph(self, user_graph_path):
         '''
@@ -61,14 +64,14 @@ class RUGD(object):
         '''
         raw_user_graph = {}
         count = 0
-        with open(user_graph_path, "r",encoding="utf-8",errors="ignore") as f:
+        with open(user_graph_path, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
                 count += 1
                 try:
                     array = line.split('\t')
                     user = array[0]
                     followees = array[1:]
-                    raw_user_graph[user]=followees
+                    raw_user_graph[user] = followees
                 except Exception as error:
                     if self.mode == "debug":
                         print(error.message)
@@ -117,13 +120,14 @@ class UGD(object):
     Turn raw user graph into stream.
     For each user and its followee pair, sample given number of users which are not of its followees.
     '''
+
     def __init__(self, config):
         self.user_sample_size = config.user_sample_size
         self.time = config.time
         self.rugd = RUGD(config)
-        self.provide_souces = ('user','followees')
+        self.provide_souces = ('user', 'followees')
 
-    def get_train_stream(self, time = None):
+    def get_train_stream(self, time=None):
         '''
         Load dataset from given data_path, and split it into training dataset and validation dataset.
         Validation dataset size = total_dataset_size*valid_protion
@@ -144,23 +148,23 @@ class UGD(object):
         user_graph, id2index = self.rugd.get_user_graph(time)
         users = []
         followees = []
-        rand_indexes = range(0,len(id2index))
+        rand_indexes = range(0, len(id2index))
         numpy.random.shuffle(rand_indexes)
         for user_index, followee_indexes in user_graph.iteritems():
-            rand_begins = numpy.random.randint(0,len(id2index),size = len(followee_indexes))
+            rand_begins = numpy.random.randint(0, len(id2index), size=len(followee_indexes))
             for followee_index, rand_begin in zip(followee_indexes, rand_begins):
                 # sample for each user-followee pair
                 users.append(user_index)
                 samples = []
                 samples.append(followee_index)
                 i = 0
-                while len(samples)<self.user_sample_size+1:
-                    if (rand_begin+i%len(id2index)) not in followee_indexes:
-                        samples.append(rand_begin+i%len(id2index))
+                while len(samples) < self.user_sample_size + 1:
+                    if (rand_begin + i % len(id2index)) not in followee_indexes:
+                        samples.append(rand_begin + i % len(id2index))
                     i += 1
                 followees.append(samples)
-        #Construct block dataset
-        return IndexableDataset(indexables={self.provide_souces[0] : users, self.provide_souces[1] : followees})
+        # Construct block dataset
+        return IndexableDataset(indexables={self.provide_souces[0]: users, self.provide_souces[1]: followees})
 
     def _construct_shuffled_stream(self, dataset):
         '''
@@ -179,14 +183,15 @@ class RUHGD(object):
     This class provide user and its post hashtag graph information during the last given_time-config.time_span days to the given_time
 
     '''
-    def __init__(self,config):
+
+    def __init__(self, config):
         self.user_hashtag_graph_dir = config.user_hashtag_graph_dir
         self.user_id2index_dir = config.user_id2index_dir
         self.user_hashtag_time_span = config.user_hashtag_time_span
         self.hashtag2index_dir = config.hashtag2index_dir
         self.mode = config.mode
 
-    def get_user_hashtag_graph(self, date, span): # do statistic work
+    def get_user_hashtag_graph(self, date, span):  # do statistic work
         from datetime import timedelta
         assert date is not None and span is not None
         user_hashtag_graph_pathes = []
@@ -200,9 +205,10 @@ class RUHGD(object):
             # Load hashtag2index information if it has been extracted for given date
             hashtag2index = self._load_hashtag2index(hashtag2index_path)
         else:
-            if path.exists(path.join(self.hashtag2index_dir, str(date-timedelta(days=1)))):
+            if path.exists(path.join(self.hashtag2index_dir, str(date - timedelta(days=1)))):
                 # Load hashtag2index information of last day for given date, and update it to the give date
-                hashtag2index = self._load_hashtag2index(path.join(self.hashtag2index_dir, str(date-timedelta(days=1))))
+                hashtag2index = self._load_hashtag2index(
+                    path.join(self.hashtag2index_dir, str(date - timedelta(days=1))))
             else:
                 hashtag2index = {}
             self._extract_hashtag2index(raw_user_hashtag_graph, hashtag2index)
@@ -247,7 +253,6 @@ class RUHGD(object):
     def _load_user_id2index(self, user_id2index_path):
         return load_dic(user_id2index_path)
 
-
     def _load_hashtag2index(self, hashtag2index_path):
         return load_dic(hashtag2index_path)
 
@@ -274,13 +279,14 @@ class UHGD(object):
     Turn raw user graph into stream.
     For each user and its followee pair, sample given number of users which are not of its followees.
     '''
+
     def __init__(self, config):
         self.user_hashtag_sample_size = config.user_sample_size
         self.date = config.date
         self.ruhgd = RUHGD(config)
-        self.provide_souces = ('user','posts')
+        self.provide_souces = ('user', 'posts')
 
-    def get_train_stream(self, time = None):
+    def get_train_stream(self, time=None):
         '''
         Load dataset from given data_path, and split it into training dataset and validation dataset.
         Validation dataset size = total_dataset_size*valid_protion
@@ -301,23 +307,23 @@ class UHGD(object):
         user_graph, id2index = self.rugd.get_user_graph(time)
         users = []
         followees = []
-        rand_indexes = range(0,len(id2index))
+        rand_indexes = range(0, len(id2index))
         numpy.random.shuffle(rand_indexes)
         for user_index, followee_indexes in user_graph.iteritems():
-            rand_begins = numpy.random.randint(0,len(id2index),size = len(followee_indexes))
+            rand_begins = numpy.random.randint(0, len(id2index), size=len(followee_indexes))
             for followee_index, rand_begin in zip(followee_indexes, rand_begins):
                 # sample for each user-followee pair
                 users.append(user_index)
                 samples = []
                 samples.append(followee_index)
                 i = 0
-                while len(samples)<self.user_hashtag_sample_size+1:
-                    if (rand_begin+i%len(id2index)) not in followee_indexes:
-                        samples.append(rand_begin+i%len(id2index))
+                while len(samples) < self.user_hashtag_sample_size + 1:
+                    if (rand_begin + i % len(id2index)) not in followee_indexes:
+                        samples.append(rand_begin + i % len(id2index))
                     i += 1
                 followees.append(samples)
-        #Construct block dataset
-        return IndexableDataset(indexables={self.provide_souces[0] : users, self.provide_souces[1] : followees})
+        # Construct block dataset
+        return IndexableDataset(indexables={self.provide_souces[0]: users, self.provide_souces[1]: followees})
 
     def _construct_shuffled_stream(self, dataset):
         '''
@@ -338,8 +344,10 @@ class UHGD(object):
         '''
         hashtag_list = []
         for _, hashtags in user_hashtag_graph.iteritems():
-            hashtag_list = hashtag_list+hashtags
-#endregion
+            hashtag_list = hashtag_list + hashtags
+
+
+# endregion
 
 
 class RUTHD(object):
@@ -350,7 +358,7 @@ class RUTHD(object):
        --> construct indexable dataset --> construct shuffled or sequencial fuel stream
        '''
 
-    def __init__(self, config, raw_dataset = None):
+    def __init__(self, config, raw_dataset=None):
         # Dictionary
         self.config = config
         self.raw_dataset = None
@@ -361,9 +369,9 @@ class RUTHD(object):
         self.LAST_DAY = "LAST_DAY"
         self.FIRST_DAY = "FIRST_DAY"
         if raw_dataset is not None:
-            self.prepare(raw_dataset = raw_dataset)
+            self.prepare(raw_dataset=raw_dataset)
 
-    def prepare(self, raw_dataset = None, data_path=None):
+    def prepare(self, raw_dataset=None, data_path=None):
         '''
         Prepare dataset
         :param data_path:
@@ -373,7 +381,7 @@ class RUTHD(object):
             data_path = self.config.train_path
         print("Preparing dataset...")
         # Load pickled dataset
-        #TODO: if raw_dataset is not None
+        # TODO: if raw_dataset is not None
         if raw_dataset is None:
             with open(data_path, 'rb') as f:
                 self.raw_dataset = cPickle.load(f)
@@ -427,7 +435,6 @@ class RUTHD(object):
 
 
 class BUTHD(object):
-
     def __init__(self, config):
         self.config = config
         self.provide_souces = ('user', 'text', 'hashtag')
@@ -456,7 +463,7 @@ class BUTHD(object):
     def get_test_stream(self, raw_dataset, it='shuffled'):
         return self._get_stream(raw_dataset, it, for_type='test')
 
-    def _get_stream(self, raw_dataset, it = 'shuffled', for_type = 'train'):
+    def _get_stream(self, raw_dataset, it='shuffled', for_type='train'):
         raw_dataset = self._update_before_transform(raw_dataset, for_type)
         dataset = self._map(raw_dataset, for_type)
         dataset = self._update_after_transform(dataset, for_type)
@@ -469,7 +476,7 @@ class BUTHD(object):
             raise ValueError('it should be "shuffled" or "sequencial"!')
 
     @abstractmethod
-    def _update_before_transform(self, raw_dataset, for_type = 'train'):
+    def _update_before_transform(self, raw_dataset, for_type='train'):
         '''
         Do updation beform transform raw_dataset into index representation dataset
         :param raw_dataset:
@@ -479,7 +486,7 @@ class BUTHD(object):
         return raw_dataset
 
     @abstractmethod
-    def _update_after_transform(self, dataset, for_type = 'train'):
+    def _update_after_transform(self, dataset, for_type='train'):
         '''
         Do updation after transform raw_dataset into index representation dataset
         :param for_type: 'train' if the data is used fof training or 'test' for testing
@@ -551,12 +558,13 @@ class UTHD(BUTHD):
     '''
     UTHD with only user, word and hashtag embeddings
     '''
+
     def __init__(self, config):
         super(UTHD, self).__init__(config)
         self.hashtag_coverage = 1.
         # Integer. Word whose frequency is less than the threshold will be stemmed
         # (1D numpy array, 1D numpy array). Storing hashtag id and hashtag normed number pair
-        self.provide_souces = ('user', 'text','hashtag')
+        self.provide_souces = ('user', 'text', 'hashtag')
 
     @abstractmethod
     def _initialize(self):
@@ -595,9 +603,9 @@ class UTHD(BUTHD):
         '''
         return OrderedDict(
             {'hashtag2index': self.hashtag2index, 'word2index': self.word2index, 'user2index': self.user2index,
-             'user2freq':self.user2freq, 'word2freq':self.word2freq, 'hashtag2freq':self.hashtag2freq,
-             'sparse_word_threshold':self.sparse_word_threshold, 'sparse_user_threshold':self.sparse_user_threshold,
-             'sparse_hashtag_threshold':self.sparse_hashtag_threshold})
+             'user2freq': self.user2freq, 'word2freq': self.word2freq, 'hashtag2freq': self.hashtag2freq,
+             'sparse_word_threshold': self.sparse_word_threshold, 'sparse_user_threshold': self.sparse_user_threshold,
+             'sparse_hashtag_threshold': self.sparse_hashtag_threshold})
 
     @abstractmethod
     def _update_before_transform(self, raw_dataset, for_type='train'):
@@ -614,7 +622,8 @@ class UTHD(BUTHD):
             self.hashtag2freq = self._extract_hashtag2freq(fields[self.config.hashtag_index])
             self.sparse_word_threshold = get_sparse_threshold(self.word2freq.values(), self.config.sparse_word_percent)
             self.sparse_user_threshold = get_sparse_threshold(self.user2freq.values(), self.config.sparse_user_percent)
-            self.sparse_hashtag_threshold = get_sparse_threshold(self.hashtag2freq.values(), self.config.sparse_hashtag_percent)
+            self.sparse_hashtag_threshold = get_sparse_threshold(self.hashtag2freq.values(),
+                                                                 self.config.sparse_hashtag_percent)
             return raw_dataset
             # Implement more updation
         elif for_type == 'test':
@@ -666,19 +675,19 @@ class UTHD(BUTHD):
         :return:
         '''
         id, count = numpy.unique(numpy.concatenate(numpy.array(texts)), return_counts=True)
-        return dict(zip(id,count))
+        return dict(zip(id, count))
 
     def _extract_user2freq(self, users):
-        assert  users is not None
+        assert users is not None
         id, count = numpy.unique(numpy.array(users), return_counts=True)
-        return dict(zip(id,count))
+        return dict(zip(id, count))
 
     def _extract_hashtag2freq(self, hashtag):
-        assert  hashtag is not None
+        assert hashtag is not None
         id, count = numpy.unique(numpy.array(hashtag), return_counts=True)
-        return dict(zip(id,count))
+        return dict(zip(id, count))
 
-    def _is_sparse_hashtag(self,hashtag):
+    def _is_sparse_hashtag(self, hashtag):
         if hashtag in self.hashtag2freq and self.hashtag2freq[hashtag] > self.sparse_hashtag_threshold:
             return False
         else:
@@ -700,7 +709,7 @@ class UTHD(BUTHD):
         if for_type == 'test':
             if hashtag not in self.hashtag2index:
                 raise ValueError('The subclass of EUTHD should remove samples'
-                             ' for testing whose hashtag is not in training dataset!')
+                                 ' for testing whose hashtag is not in training dataset!')
             else:
                 return self.hashtag2index[hashtag]
         elif self._is_sparse_hashtag(hashtag):
@@ -734,12 +743,13 @@ class EUTHD(UTHD):
     1. when OV input occurs, force it to be zeros, i.e., make it not sense, and get output with left information
     2. train a OV input, i.e., select some inputs of training samples and treat it as OV input, train this representation.
     '''
+
     def __init__(self, config):
         super(EUTHD, self).__init__(config)
         # (1D numpy array, 1D numpy array). Storing hashtag id and hashtag normed number pair
         self.provide_souces = ('user', 'text', 'user_word', 'user_word_idx',
-                               'hashtag_word', 'hashtag_word_idx', 'sparse_word','sparse_word_idx', 'hashtag')
-        self.sparse_pairs = [('user_word','user_word_idx'),
+                               'hashtag_word', 'hashtag_word_idx', 'sparse_word', 'sparse_word_idx', 'hashtag')
+        self.sparse_pairs = [('user_word', 'user_word_idx'),
                              ('hashtag_word', 'hashtag_word_idx')]
         self.char_sources = ('sparse_word',)
         self.char_idx_sources = ('sparse_word_idx',)
@@ -772,7 +782,7 @@ class EUTHD(UTHD):
         return super(EUTHD, self)._update_before_transform(raw_dataset, for_type)
 
     @abstractmethod
-    def _update_after_transform(self, dataset, for_type = 'train'):
+    def _update_after_transform(self, dataset, for_type='train'):
         '''
         Do updation after transform raw_dataset into index representation dataset
         :param for_type: 'train' if the data is used fof training or 'test' for testing
@@ -809,10 +819,10 @@ class EUTHD(UTHD):
         hashtags = numpy.array([self._get_hashtag_index(hashtag, for_type) for hashtag in
                                 fields[self.config.hashtag_index]],
                                dtype=self.config.int_type)
-    
+
         text_idxes = self._turn_word2index(fields[self.config.text_index], for_type)
         return (users,) + text_idxes + (hashtags,)
-    
+
     def _turn_word2index(self, texts, for_type='train'):
         user_words = []
         user_word_idxes = []
@@ -869,7 +879,8 @@ class EUTHD(UTHD):
             hashtag_word_idxes.append(numpy.array(hashtag_idx, dtype=self.config.int_type))
             sparse_word_idxes.append(numpy.array(sparse_word_idx, dtype=self.config.int_type))
             sparse_words.append(sparse_word)
-        return (text_idxes, user_words, user_word_idxes, hashtag_words, hashtag_word_idxes, sparse_words, sparse_word_idxes)
+        return (
+        text_idxes, user_words, user_word_idxes, hashtag_words, hashtag_word_idxes, sparse_words, sparse_word_idxes)
 
     def _get_word_index(self, word, for_type='train'):
         if for_type != 'train' and word not in self.word2index:
@@ -895,7 +906,7 @@ class EUTHD(UTHD):
         stream = SparseIndex(stream, self.sparse_pairs)
         stream = CharEmbedding(stream, char_source=self.char_sources, char_idx_source=self.char_idx_sources)
         return stream
-    
+
     def _construct_sequencial_stream(self, dataset):
         '''Construct sequencial stream.
         This is usually used for testing and prediction.
@@ -910,6 +921,7 @@ class TimeLineEUTHD(EUTHD):
     '''
     Dataset for training day by day
     '''
+
     def __init__(self, config):
         super(TimeLineEUTHD, self).__init__(config)
 
@@ -931,7 +943,7 @@ class TimeLineEUTHD(EUTHD):
         dic['hashtag2date'] = self.hashtag2date
         return dic
 
-    def _update_before_transform(self, raw_dataset, for_type = 'train'):
+    def _update_before_transform(self, raw_dataset, for_type='train'):
         '''
 
         :param raw_dataset: The dataset of current day
@@ -944,13 +956,13 @@ class TimeLineEUTHD(EUTHD):
             dates = fields[self.config.date_index]
             assert (numpy.array(dates) != dates[0]).sum() == 0
             current_date = fields[self.config.date_index][0]
-            expire_date = current_date-datetime.timedelta(days = self.config.time_window)
+            expire_date = current_date - datetime.timedelta(days=self.config.time_window)
             hashtags = fields[self.config.hashtag_index]
             for hashtag in hashtags:
                 self.hashtag2date[hashtag] = current_date
             for hashtag, date in self.hashtag2date.items():
                 if date <= expire_date:
-                    self.hashtag2index.pop(hashtag,None)
+                    self.hashtag2index.pop(hashtag, None)
                     self.hashtag2date.pop(hashtag, None)
                 else:
                     pass
@@ -961,7 +973,7 @@ class TimeLineEUTHD(EUTHD):
 
 
 class NegTimeLineEUTHD(TimeLineEUTHD):
-    def __init__(self,config):
+    def __init__(self, config):
         super(NegTimeLineEUTHD, self).__init__(config)
 
     def _initialize(self):
@@ -979,7 +991,7 @@ class NegTimeLineEUTHD(TimeLineEUTHD):
         dic['date2hashtag_freq'] = self.date2hashtag_freq
         return dic
 
-    def _update_before_transform(self, raw_dataset, for_type = 'train'):
+    def _update_before_transform(self, raw_dataset, for_type='train'):
         raw_dataset = super(NegTimeLineEUTHD, self)._update_before_transform(raw_dataset, for_type)
         if for_type == 'train':
             fields = zip(*raw_dataset)
@@ -995,7 +1007,7 @@ class NegTimeLineEUTHD(TimeLineEUTHD):
             pass
         return raw_dataset
 
-    def _update_after_transform(self, dataset, for_type = 'train'):
+    def _update_after_transform(self, dataset, for_type='train'):
         if for_type == 'train':
             self.hashtag_distribution = self._get_hashtag_distribution()
         else:
@@ -1014,7 +1026,7 @@ class NegTimeLineEUTHD(TimeLineEUTHD):
                         _dic[id] = freq
         id, count = zip(*_dic.items())
         count = numpy.array(count) ** (3.0 / 4)
-        return (numpy.array(id,dtype='int32'), count)
+        return (numpy.array(id, dtype='int32'), count)
 
     def _construct_shuffled_stream(self, dataset):
         '''
@@ -1047,6 +1059,110 @@ class NegTimeLineEUTHD(TimeLineEUTHD):
         sample_sizes = [self.config.hashtag_sample_size]
         stream = NegativeSample(stream, sample_from, sample_sources, sample_sizes)
         return stream
+
+
+class FDUTHD(object):
+    def __init__(self, config):
+        self.config = config
+        self.index2hashtag = {}
+        self.hashtag2index = {}
+        self.user2dic = {} # user-->{hashtag index-->freq}
+        self.hashtag_index2freq = None # ndarray
+        self.alpha = 0.1
+
+    def set_alpha(self, alpha):
+        self.alpha = alpha
+
+    def set_train_data(self, raw_dataset):
+        fields = zip(*raw_dataset)
+        users = fields[self.config.user_index]
+        hashtags = fields[self.config.hashtag_index]
+        self._get_hashtag2index(hashtags)
+        self._get_hashtag_index2freq(hashtags)
+        self._get_user_dic(users,hashtags)
+
+    def test(self, raw_dataset):
+        fields = zip(*raw_dataset)
+        users = fields[self.config.user_index]
+        hashtags = fields[self.config.hashtag_index]
+        top1_accuracy = 0
+        top10_accuracy = 0
+        for user, hashtag in zip(users,hashtags):
+            top1_pred, top10_pred = self.single_test(user, hashtag)
+            top1_accuracy += top1_pred
+            top10_accuracy += top10_pred
+        top1_accuracy = 1.0*top1_accuracy/len(users)
+        top10_accuracy = 1.0*top10_accuracy/len(users)
+        return top1_accuracy,top10_accuracy
+
+    def single_test(self, user, hashtag):
+        if hashtag not in self.hashtag2index:
+            return 0,0
+        else:
+            top1 = 0
+            top10 = 0
+            order_ids = self.single_predict(user)
+            real_id = self.hashtag2index[hashtag]
+            if order_ids[0] == real_id:
+                top1 = 1
+            else:
+                pass
+            if real_id in order_ids[0:10]:
+                top10 = 1
+            else:
+                pass
+            return top1, top10
+
+    def single_predict(self, user):
+        base = numpy.ones(len(self.hashtag2index))
+        # base = numpy.zeros(len(self.hashtag2index))
+        hashtag2freq = self.user2dic.get(user)
+        if hashtag2freq is not None:
+            index, freq = zip(*hashtag2freq.items())
+            base[list(index)] += numpy.array(freq)
+        else:
+            pass
+        f_u_h = base
+        value = self._get_value(f_u_h)
+        order_id = numpy.argsort(value)[::-1]
+        return order_id
+
+    def _get_value(self, f_u_h):
+        # value =  f_u_h*self.hashtag_index2freq
+        value =  (1-self.alpha)*f_u_h/f_u_h.sum()+self.alpha*self.hashtag_index2freq/self.hashtag_index2freq.sum()
+        return value
+
+    def _get_hashtag2index(self, hashtags):
+        assert  hashtags is not None and len(hashtags) > 0
+        for hashtag in hashtags:
+            if hashtag not in self.hashtag2index:
+                self.hashtag2index[hashtag] = len(self.hashtag2index)
+                self.index2hashtag[len(self.hashtag2index)-1] = hashtag
+            else:
+                pass
+
+    def _get_hashtag_index2freq(self, hashtags):
+        l = []
+        for hashtag in hashtags:
+            l.append(self.hashtag2index[hashtag])
+        id,count = numpy.unique(numpy.array(l), return_counts=True)
+        idx = numpy.argsort(id)
+        id = id[idx]
+        count = count[idx]
+        self.hashtag_index2freq = numpy.array(count, dtype="float32")
+
+    def _get_user_dic(self, users, hashtags):
+        assert len(users) == len(hashtags)
+        for user, hashtag in zip(users, hashtags):
+            hashtag = self.hashtag2index[hashtag]
+            if user not in self.user2dic:
+                self.user2dic[user] = {hashtag:1}
+            else:
+                dic = self.user2dic[user]
+                if hashtag not in dic:
+                    dic[hashtag] = 1
+                else:
+                    dic[hashtag] += 1
 
 
 class TUTHD(UTHD):

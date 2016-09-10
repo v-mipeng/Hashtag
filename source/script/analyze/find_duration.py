@@ -7,13 +7,14 @@ Find the most approariate date duration of the training dataset. The following a
 import sys
 sys.path.extend("../..")
 import os
+import cPickle
 from collections import OrderedDict
 import datetime
 
 import numpy as np
 
 from config import UTHC
-from dataset import  RUTHD, SNUTHD
+from dataset import  RUTHD
 
 def get_distribution(tags):
     assert tags is not None
@@ -39,7 +40,7 @@ def get_coverage(train_dist, test_dist):
 
 def get_kl_distances(config):
     dataset = RUTHD(config)
-    dataset.prepare(config.train_path)
+    dataset.prepare()
     fields = zip(*dataset.raw_dataset)
     hashtags = np.array(fields[config.hashtag_index])
     dates = np.array(fields[config.date_index])
@@ -50,12 +51,16 @@ def get_kl_distances(config):
     KLs = OrderedDict()
     AKLs = OrderedDict()
     CRs = OrderedDict()
+    ACRs = OrderedDict()
     max_duration = min(date_span, 30)
     max_date_span = min(date_span, 60)
     for duration in range(1, max_duration):
+        if duration == 10:
+            pass
         kls = []
         kl = 0.
         crs = []
+        cr = 0.
         for date_offset in range(duration, max_date_span):
             date_end = first_day + datetime.timedelta(days=date_offset -1)
             date_begin = date_end - datetime.timedelta(days = duration)
@@ -67,32 +72,46 @@ def get_kl_distances(config):
             test_hashtags = hashtags[idxes]
             test_distribution = get_distribution(test_hashtags)
             tmp = get_kl_dist(train_distribution, test_distribution)
-            crs.append(get_coverage(train_distribution, test_distribution))
             kls.append(tmp)
             kl += tmp
-        kl /= max_date_span-duration+1
+            tmp = get_coverage(train_distribution, test_distribution)
+            crs.append(tmp)
+            cr += tmp
+        kl /= max_date_span-duration
+        cr /= max_date_span-duration
         KLs[duration] = kls
         CRs[duration] = crs
-        AKLs[duration] = (kl)
-    return AKLs, KLs, CRs
+        AKLs[duration] = kl
+        ACRs[duration] = cr
+    return AKLs, KLs, CRs, ACRs
 
 
 if __name__ == "__main__":
     config = UTHC()
     print(config.project_dir)
-    config.train_path = os.path.join(config.project_dir, 'data/unit test/posts.pkl')
-    AKLs, KLs, CRs = get_kl_distances(config)
+    config.train_path = os.path.join(config.project_dir, 'data/tweet/first_11_days.pkl')
+    AKLs, KLs, CRs, ACRs = get_kl_distances(config)
     akls = np.array(AKLs.values())
     best_duration = akls.argmin()
     result_path = os.path.join(config.project_dir, 'output/analysis/kl.txt')
     with open(result_path, "w+") as writer:
-        writer.write("{0:10}{1:5}\n".format("duration","KL"))
-        for duration, kl in AKLs.iteritems():
-            writer.write("{0:2d}\t{1:.4f}\n".format(duration,kl))
+        writer.write("Average KL\n")
+        writer.write("{0:10}{1:5}\n".format("duration","AKL"))
+        for duration, akl in AKLs.iteritems():
+            writer.write("{0:2d}\t{1:.4f}\n".format(duration,akl))
+
+        writer.write("KL by day\n")
+        writer.write("{0:10}\n".format("duration"))
         writer.write("KL by day:\n")
-        for duration, _ in AKLs.iteritems():
+        for duration, _ in KLs.iteritems():
             writer.write("{0}\n".format("\t".join(["{0:.4f}".format(kl) for kl in KLs[duration]])))
-        writer.write("CR by day:\n")
-        for duration, _ in AKLs.iteritems():
+
+        writer.write("Average CR:\n")
+        writer.write("{0:10}{1:5}\n".format("duration","ACR"))
+        for duration, acr in ACRs.iteritems():
+            writer.write("{0:2d}\t{1:.4f}\n".format(duration, acr))
+
+        writer.write("CR by day\n")
+        writer.write("{0:10}\n".format("duration"))
+        for duration, _ in CRs.iteritems():
             writer.write("{0}\n".format("\t".join(["{0:.4f}".format(cr) for cr in CRs[duration]])))
-        writer.write("Best duration:{0}\n".format(AKLs.keys()[best_duration]))

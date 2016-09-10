@@ -31,6 +31,42 @@ class EpochMonitor(SimpleExtension):
                 self.main_loop.status['epoch_interrupt_received'] = True
 
 
+class MyDataStreamMonitoring(DataStreamMonitoring):
+    """Monitors Theano variables and monitored-quantities on a data stream.
+
+    By default monitoring is done before the first and after every epoch.
+
+    Parameters
+    ----------
+    variables : list of :class:`~tensor.TensorVariable` and
+        :class:`MonitoredQuantity`
+        The variables to monitor. The variable names are used as record
+        names in the logs.
+    updates : list of tuples or :class:`~collections.OrderedDict` or None
+        :class:`~tensor.TensorSharedVariable` updates to be performed
+        during evaluation. This parameter is only for Theano variables.
+        Be careful not to update any model parameters as this is not
+        intended to alter your model in any meaningful way. A typical
+        use case of this option arises when the theano function used
+        for evaluation contains a call to :func:`~theano.scan` which
+        might have returned shared variable updates.
+    data_stream : instance of :class:`.DataStream`
+        The data stream to monitor on. A data epoch is requested
+        each time monitoring is done.
+
+    """
+    PREFIX_SEPARATOR = '_'
+
+    def __init__(self, variables, data_stream, updates=None, **kwargs):
+        super(MyDataStreamMonitoring, self).__init__(variables, data_stream, updates, **kwargs)
+
+    def do(self, callback_name, *args):
+        """Write the values of monitored variables to the log."""
+        value_dict = self._evaluator.evaluate(self.data_stream)
+        for key, value in value_dict.items():
+            print("{0}:{1}".format(key,value))
+
+
 class BasicSaveLoadParams(SimpleExtension):
     '''
     Only initialize word, user and haashtag embeddings and bricks params

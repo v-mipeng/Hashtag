@@ -67,7 +67,6 @@ class UTHE(object):
                 '''
         load_from = self.config.model_path
         model_base_name, _ = os.path.splitext(self.config.model_path)
-        count = 0
         self.raw_dataset.prepare()
         if self.config.begin_date is None:
             date_offset = 0
@@ -75,13 +74,19 @@ class UTHE(object):
             date_offset = self.config.begin_date
         T = self.config.T
         # TODO: iterate on date_offset to get dynamic result
-        tmp = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
-                                           date_offset=T-1,
-                                           duration=self.config.time_window)
-        numpy.random.seed(123)
-        rvs = numpy.random.uniform(low=0., high=1., size=len(tmp))
-        train_raw_dataset = tmp[rvs > self.config.valid_percent]
-        valid_raw_dataset = tmp[rvs <= self.config.valid_percent]
+        # tmp = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+        #                                    date_offset=T-1,
+        #                                    duration=self.config.time_window)
+        # numpy.random.seed(123)
+        # rvs = numpy.random.uniform(low=0., high=1., size=len(tmp))
+        # train_raw_dataset = tmp[rvs > self.config.valid_percent]
+        # valid_raw_dataset = tmp[rvs <= self.config.valid_percent]
+        train_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+                                          date_offset=T-2,
+                                          duration=self.config.time_window)
+        valid_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+                                                         date_offset=T - 1,
+                                                         duration=1)
         test_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
                                                         date_offset=T,
                                                         duration=1)
@@ -97,7 +102,7 @@ class UTHE(object):
         logger.info("Training model on date:{0} finished!".format(date))
         test_stream = self.dataset.get_test_stream(test_raw_dataset)
         logging.info("Test model on date:{0} ...".format(date))
-        self.test(test_stream, load_from=load_from)
+        self.test(test_stream, load_from=save_to)
         logger.info("Test model on date:{0} finished!".format(date))
 
     def _train_model(self, train_stream, valid_stream, load_from, save_to):
@@ -105,8 +110,6 @@ class UTHE(object):
         self.model = self.config.Model(self.config, self.dataset)  # with word2id
 
         cg = Model(self.model.cg_generator)
-
-        params = cg.get_parameter_values()
 
         algorithm = GradientDescent(cost=self.model.cg_generator,
                                     step_rule=self.config.step_rule,
@@ -165,40 +168,49 @@ class UTHE(object):
 
     def test(self, test_stream, load_from):
         # Build model
+        self.model = self.config.Model(self.config, self.dataset)  # with word2id
+
         cg = Model(self.model.cg_generator)
-        inputs = cg.inputs
-        top1_recall = 0.
-        top10_recall = 0.
-        cost = 0.
-        f_cost = theano.function(inputs, self.model.monitor_train_vars[0][0])
-        f_top1 = theano.function(inputs, self.model.monitor_train_vars[1][0])
-        f_top10 = theano.function(inputs, self.model.monitor_train_vars[2][0])
-        data_size = 0
+
+        initializer = self.model_save_loader(load_from=load_from,
+                                             save_to=load_from,
+                                             model=cg,
+                                             dataset=self.dataset,
+                                             before_training=True)
+        initializer.do_load()
+
+        extension = MyDataStreamMonitoring([v for l in self.model.monitor_test_vars for v in l],
+                        test_stream,
+                        before_training=True,
+                        prefix='test')
+
         for batch in test_stream.get_epoch_iterator():
-            data_size += batch[0].shape[0]
-            stream_inputs = []
-            for input in inputs:
-                stream_inputs.append(batch[test_stream.sources.index(input.name)])
-            cost += f_cost(*tuple(stream_inputs))*stream_inputs[0].shape[0]
-            top1_recall += f_top1(*tuple(stream_inputs)) * stream_inputs[0].shape[0]
-            top10_recall += f_top10(*tuple(stream_inputs)) * stream_inputs[0].shape[0]
-        top1_recall /= data_size
-        top10_recall /= data_size
-        cost /= data_size
-        print("Test hashtag coverage:{0}".format(self.dataset.hashtag_coverage))
-        print("cost:{0}\n".format(cost))
-        print("top1_recall:{0}\n".format(top1_recall * self.dataset.hashtag_coverage))
-        print("top10_recall:{0}\n".format(top10_recall * self.dataset.hashtag_coverage))
+            extension.do('before_training', batch)
 
 
 class EUTHE(UTHE):
-    '''Train Extended UTH model which apply hashtag bias'''
+    '''Train Extended UTH model'''
     def __init__(self, config = None):
         super(EUTHE, self).__init__(config)
 
     def _initialize(self, config = None):
         if config is None:
             self.config = EUTHC
+        else:
+            self.config = config
+        self.raw_dataset = RUTHD(self.config)
+        self.dataset = EUTHD(self.config)
+        self.model = None
+        self.model_save_loader = ExtendSaveLoadParams
+
+
+class AttentionEUTHE(EUTHE):
+    def __init__(self, config = None):
+        super(AttentionEUTHE, self).__init__(config)
+
+    def _initialize(self, config = None):
+        if config is None:
+            self.config = AttentionEUTHC
         else:
             self.config = config
         self.raw_dataset = RUTHD(self.config)
@@ -277,7 +289,7 @@ class TimeLineEUTHE(UTHE):
         test_stream = self.dataset.get_test_stream(test_raw_dataset)
         date = self.raw_dataset.first_date + datetime.timedelta(days=date_offset + self.config.time_window)
         logging.info("Test model on date:{0} ...".format(date))
-        self.test(test_stream, load_from=load_from)
+        self.test(test_stream, load_from=save_to)
         logger.info("Test model on date:{0} finished!".format(date))
 
 
@@ -318,64 +330,78 @@ class NegTimeLineEUTHE(TimeLineEUTHE):
         print("top10_recall:{0}\n".format(top10_recall * self.dataset.hashtag_coverage))
 
 
-class TUTHE(UTHE):
+class FDUTHE(object):
+    def __init__(self):
+        self._initialize()
+
+    def _initialize(self, config = None):
+        if config is None:
+            self.config = UTHC
+        else:
+            self.config = config
+        self.raw_dataset = RUTHD(self.config)
+        self.dataset = FDUTHD(self.config)
+
+    def do(self):
+        T = self.config.T
+
+        # TODO: iterate on date_offset to get dynamic result
+        train_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+                                           date_offset=T - 1,
+                                           duration=self.config.time_window)
+        test_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+                                           date_offset=T,
+                                           duration=1)
+        self.dataset.set_train_data(train_raw_dataset)
+        for alpha in range(1,10):
+            self.dataset.set_alpha(0.1*alpha)
+            top1_accuracy, top10_accuracy = self.dataset.test(test_raw_dataset)
+            print("top1 accuracy:{0} with alpha={1}".format(top1_accuracy, 0.1*alpha))
+            print("top10 accuracy:{0} with alpha={1}".format(top10_accuracy,0.1*alpha))
+
+
+class TUTHE(EUTHE):
 
     def __init__(self, config = None):
         super(TUTHE,self).__init__(config)
 
     def test(self, test_stream, load_from):
         load_from = self.config.model_path
-        tmp = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
-                                           date_offset=self.config.time_window - 1,
-                                           duration=self.config.time_window)
-        numpy.random.seed(123)
-        rvs = numpy.random.uniform(low=0., high=1., size=len(tmp))
-        train_raw_dataset = tmp[rvs > self.config.valid_percent]
-        valid_raw_dataset = tmp[rvs <= self.config.valid_percent]
-        # valid_stream = self.dataset.get_test_stream(valid_raw_dataset)
-        # test_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
-        #                                                 date_offset=self.config.time_window,
-        #                                                 duration=1)
-        # test_stream = self.dataset.get_test_stream(test_raw_dataset)
-        # test_stream = valid_stream
+        test_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+                                                        date_offset=self.config.T,
+                                                        duration=1)
+        test_stream = self.dataset.get_test_stream(test_raw_dataset)
         # Build model
         self.model = self.config.Model(self.config, self.dataset)  # with word2id
 
         cg = Model(self.model.cg_generator)
+
         initializer = self.model_save_loader(load_from=load_from,
                                    save_to = load_from,
                                    model=cg,
                                    dataset= self.dataset,
                                    before_training=True)
         initializer.do_load()
-        inputs = cg.inputs
-        top1_recall = 0.
-        top10_recall = 0.
-        cost = 0.
-        f_cost = theano.function(inputs, self.model.monitor_train_vars[0][0])
-        f_top1 = theano.function(inputs, self.model.monitor_train_vars[1][0])
-        f_top10 = theano.function(inputs, self.model.monitor_train_vars[2][0])
-        data_size = 0
-        for batch in test_stream.get_epoch_iterator():
-            data_size += batch[0].shape[0]
-            stream_inputs = []
-            for input in inputs:
-                stream_inputs.append(batch[test_stream.sources.index(input.name)])
-            cost += f_cost(*tuple(stream_inputs)) * stream_inputs[0].shape[0]
-            top1_recall += f_top1(*tuple(stream_inputs)) * stream_inputs[0].shape[0]
-            top10_recall += f_top10(*tuple(stream_inputs)) * stream_inputs[0].shape[0]
-        top1_recall /= data_size
-        top10_recall /= data_size
-        cost /= data_size
-        print("Test hashtag coverage:{0}".format(self.dataset.hashtag_coverage))
-        print("cost:{0}\n".format(cost))
-        print("top1_recall:{0}\n".format(top1_recall * self.dataset.hashtag_coverage))
-        print("top10_recall:{0}\n".format(top10_recall * self.dataset.hashtag_coverage))
 
+        extensions = [
+            DataStreamMonitoring([v for l in self.model.monitor_train_vars for v in l],
+                                 test_stream,
+                                 before_training=True,
+                                 prefix='valid')
+        ]
+
+        main_loop = MainLoop(
+            model=cg,
+            data_stream=None,
+            algorithm=None,
+            extensions=extensions
+        )
+        # Run the model !
+        try:
+            main_loop.run()
+        except Exception as e:
+            print(e.message)
 
 if __name__ ==  "__main__":
-    config = BiasUTHC
-    config.model_path = os.path.join(config.project_dir, "output/model/BiasUTH_2015-01-113.pkl")
-    entrance = TUTHE(config)
-    entrance.test(test_stream=None,load_from=None)
-    rvg = numpy.random.seed(123)
+    entrance = FDUTHE()
+    entrance.do()
