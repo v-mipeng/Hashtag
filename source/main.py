@@ -3,7 +3,7 @@ from entrance import *
 
 
 if __name__ ==  "__main__":
-    entrance = EUTHE()
+    entrance = TimeLineAttentionEUTHE()
     entrance.train()
     # entrance = FDUTHE()
     # entrance.do()

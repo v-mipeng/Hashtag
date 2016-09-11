@@ -6,7 +6,7 @@ import cPickle
 import datetime
 import os.path as path
 from collections import OrderedDict
-
+import numpy
 from fuel.datasets import IndexableDataset
 from fuel.schemes import ConstantScheme, ShuffledExampleScheme, SequentialScheme
 from fuel.streams import DataStream
@@ -917,6 +917,158 @@ class EUTHD(UTHD):
         return stream
 
 
+class ETHD(EUTHD):
+    '''
+    Extended THD: textual and hashtag
+    '''
+
+    def __init__(self, config):
+        super(ETHD, self).__init__(config)
+        self.provide_souces = ('text','hashtag_word', 'hashtag_word_idx', 'sparse_word', 'sparse_word_idx', 'hashtag')
+        self.need_mask_sources = {'text': theano.config.floatX}
+        self.compare_source = 'text'
+        self.sparse_pairs = [('hashtag_word', 'hashtag_word_idx')]
+        self.char_sources = ('sparse_word',)
+        self.char_idx_sources = ('sparse_word_idx',)
+        self._initialize()
+
+    @abstractmethod
+    def _initialize(self):
+        if os.path.exists(self.config.model_path):
+            with open(self.config.model_path, 'rb') as f:
+                cPickle.load(f)
+                dataset_prarms = cPickle.load(f)
+                self.word2index = dataset_prarms['word2index']
+                self.hashtag2index = dataset_prarms['hashtag2index']
+                self.word2freq = dataset_prarms['word2freq']
+                self.hashtag2freq = dataset_prarms['hashtag2freq']
+                self.sparse_word_threshold = dataset_prarms['sparse_word_threshold']
+                self.sparse_hashtag_threshold = dataset_prarms['sparse_hashtag_threshold']
+                self.char2index = dataset_prarms['char2index']
+                return dataset_prarms
+        else:
+            # Dictionary
+            self.hashtag2index = {'<unk>': 0}
+            self.word2index = {}
+            self.char2index = {'<unk>':0}
+            self.word2freq = {}
+            self.hashtag2freq = {}
+            self.sparse_word_threshold = 0
+            self.sparse_hashtag_threshold = 0
+            return None
+
+    @abstractmethod
+    def get_parameter_to_save(self):
+        '''
+        Return parameters that need to be saved with model
+        :return: OrderedDict
+        '''
+        return OrderedDict(
+            {'hashtag2index': self.hashtag2index, 'word2index': self.word2index, 'char2index':self.char2index,
+             'word2freq': self.word2freq, 'hashtag2freq': self.hashtag2freq,
+             'sparse_word_threshold': self.sparse_word_threshold,
+             'sparse_hashtag_threshold': self.sparse_hashtag_threshold})
+
+    @abstractmethod
+    def _update_before_transform(self, raw_dataset, for_type='train'):
+        '''
+        Do updation beform transform raw_dataset into index representation dataset
+        :param raw_dataset:
+        :param for_type: 'train' if the data is used fof training or 'test' for testing
+        :return: a new raw_dataset
+        '''
+        if for_type == 'train':
+            fields = zip(*raw_dataset)
+            self.word2freq = self._extract_word2freq(fields[self.config.text_index])
+            self.hashtag2freq = self._extract_hashtag2freq(fields[self.config.hashtag_index])
+            self.sparse_word_threshold = get_sparse_threshold(self.word2freq.values(), self.config.sparse_word_percent)
+            self.sparse_hashtag_threshold = get_sparse_threshold(self.hashtag2freq.values(),
+                                                                 self.config.sparse_hashtag_percent)
+            return raw_dataset
+            # Implement more updation
+        elif for_type == 'test':
+            tmp = []
+            for sample in raw_dataset:
+                if sample[self.config.hashtag_index] in self.hashtag2index:
+                    tmp.append(sample)
+                else:
+                    pass
+            self.hashtag_coverage = 1.0 * len(tmp) / len(raw_dataset)
+            return numpy.asarray(tmp)
+        else:
+            raise ValueError('for_type should be either "train" or "test"')
+
+    def _map(self, raw_dataset, for_type='train'):
+        assert raw_dataset is not None or len(raw_dataset) > 0
+        fields = zip(*raw_dataset)
+        hashtags = numpy.array([self._get_hashtag_index(hashtag, for_type) for hashtag in
+                                fields[self.config.hashtag_index]],
+                               dtype=self.config.int_type)
+
+        text_idxes = self._turn_word2index(fields[self.config.text_index], for_type)
+        return text_idxes + (hashtags,)
+
+    def _turn_word2index(self, texts, for_type='train'):
+        hashtag_words = []
+        hashtag_word_idxes = []
+        sparse_words = []
+        sparse_word_idxes = []
+        text_idxes = []
+        for words in texts:
+            hashtags = []
+            hashtag_idx = []
+            sparse_word = []
+            sparse_word_idx = []
+            text = []
+            for i in range(len(words)):
+                if words[i].startswith('#'):
+                    if len(words[i]) > 1:
+                        hashtag = words[i][1:]
+                        if hashtag in self.hashtag2index:
+                            hashtags.append(self.hashtag2index[hashtag])
+                            text.append(0)
+                            hashtag_idx.append(i)
+                        else:
+                            sparse_word.append(numpy.array([self._get_char_index(c) for c in words[i]],
+                                                           dtype=self.config.int_type))
+                            sparse_word_idx.append(i)
+                            text.append(0)
+                    else:
+                        text.append(self._get_word_index(words[i], for_type))
+                elif self._is_sparse_word(words[i]):
+                    sparse_word.append(numpy.array([self._get_char_index(c, for_type) for c in words[i]],
+                                                   dtype=self.config.int_type))
+                    sparse_word_idx.append(i)
+                    text.append(0)
+                else:
+                    text.append(self._get_word_index(words[i], for_type))
+            hashtag_words.append(numpy.array(hashtags, dtype=self.config.int_type))
+            text_idxes.append(numpy.array(text, dtype=self.config.int_type))
+            hashtag_word_idxes.append(numpy.array(hashtag_idx, dtype=self.config.int_type))
+            sparse_word_idxes.append(numpy.array(sparse_word_idx, dtype=self.config.int_type))
+            sparse_words.append(sparse_word)
+        return (text_idxes, hashtag_words, hashtag_word_idxes, sparse_words, sparse_word_idxes)
+
+    def _extract_word2freq(self, texts):
+        '''
+        Count word frequency
+        :param texts:
+        :return:
+        '''
+        assert texts is not None
+        word2freq = {}
+        for words in texts:
+            for word in words:
+                if not word.startswith('#'):
+                    if word not in word2freq:
+                        word2freq[word] = 1
+                    else:
+                        word2freq[word] += 1
+                else:
+                    continue
+        return word2freq
+
+
 class TimeLineEUTHD(EUTHD):
     '''
     Dataset for training day by day
@@ -1111,7 +1263,23 @@ class FDUTHD(object):
                 top10 = 1
             else:
                 pass
+
             return top1, top10
+
+    def test_top_n(self, user, hashtag, top_n = 10):
+        result = numpy.zeros(top_n, dtype='int32')
+        if hashtag not in self.hashtag2index:
+            return result
+        else:
+            order_ids = self.single_predict(user)
+            assert len(order_ids) > top_n
+            real_id = self.hashtag2index[hashtag]
+            for i in range(1, top_n+1):
+                if real_id in order_ids[0:i]:
+                    result[i-1] = 1
+                else:
+                    pass
+            return result
 
     def single_predict(self, user):
         base = numpy.ones(len(self.hashtag2index))
@@ -1128,8 +1296,8 @@ class FDUTHD(object):
         return order_id
 
     def _get_value(self, f_u_h):
-        # value =  f_u_h*self.hashtag_index2freq
-        value =  (1-self.alpha)*f_u_h/f_u_h.sum()+self.alpha*self.hashtag_index2freq/self.hashtag_index2freq.sum()
+        value =  f_u_h*self.hashtag_index2freq
+        # value =  (1-self.alpha)*f_u_h/f_u_h.sum()+self.alpha*self.hashtag_index2freq/self.hashtag_index2freq.sum()
         return value
 
     def _get_hashtag2index(self, hashtags):

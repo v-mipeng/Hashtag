@@ -37,10 +37,10 @@ class UTHE(object):
 
     '''
 
-    def __init__(self, config = None):
+    def __init__(self, config = None, *args, **kwargs):
         self._initialize(config)
 
-    def _initialize(self, config = None):
+    def _initialize(self, config = None, *args, **kwargs):
         if config is None:
             self.config = UTHC
         else:
@@ -105,7 +105,7 @@ class UTHE(object):
         self.test(test_stream, load_from=save_to)
         logger.info("Test model on date:{0} finished!".format(date))
 
-    def _train_model(self, train_stream, valid_stream, load_from, save_to):
+    def _train_model(self, train_stream, valid_stream, load_from, save_to, *args, **kwargs):
         # Build model
         self.model = self.config.Model(self.config, self.dataset)  # with word2id
 
@@ -166,7 +166,7 @@ class UTHE(object):
         # Run the model !
         main_loop.run()
 
-    def test(self, test_stream, load_from):
+    def test(self, test_stream, load_from, *args, **kwargs):
         # Build model
         self.model = self.config.Model(self.config, self.dataset)  # with word2id
 
@@ -181,11 +181,36 @@ class UTHE(object):
 
         extension = MyDataStreamMonitoring([v for l in self.model.monitor_test_vars for v in l],
                         test_stream,
+                        coverage= self.dataset.hashtag_coverage,
                         before_training=True,
                         prefix='test')
 
         for batch in test_stream.get_epoch_iterator():
             extension.do('before_training', batch)
+
+    def monitor_extra(self, stream, load_from, *args, **kwargs):
+        # Monitor Hit@1~10
+        self.model = self.config.Model(self.config, self.dataset)  # with word2id
+
+        cg = Model(self.model.cg_generator)
+
+        initializer = self.model_save_loader(load_from=load_from,
+                                             save_to=load_from,
+                                             model=cg,
+                                             dataset=self.dataset,
+                                             before_training=True)
+        initializer.do_load()
+
+
+
+
+        extension = MyDataStreamMonitoring([v for l in self.model.monitor_test_vars for v in l],
+                                           stream,
+                                           coverage=self.dataset.hashtag_coverage,
+                                           before_training=True,
+                                           prefix='test')
+
+        extension.do('before_training', batch)
 
 
 class EUTHE(UTHE):
@@ -193,7 +218,7 @@ class EUTHE(UTHE):
     def __init__(self, config = None):
         super(EUTHE, self).__init__(config)
 
-    def _initialize(self, config = None):
+    def _initialize(self, config = None, *args, **kwargs):
         if config is None:
             self.config = EUTHC
         else:
@@ -204,11 +229,26 @@ class EUTHE(UTHE):
         self.model_save_loader = ExtendSaveLoadParams
 
 
-class AttentionEUTHE(EUTHE):
+class ETHE(EUTHE):
     def __init__(self, config = None):
+        super(ETHE, self).__init__(config)
+
+    def _initialize(self, config = None, *args, **kwargs):
+        if config is None:
+            self.config = ETHC
+        else:
+            self.config = config
+        self.raw_dataset = RUTHD(self.config)
+        self.dataset = ETHD(self.config)
+        self.model = None
+        self.model_save_loader = ETHSaveLoadParams
+
+
+class AttentionEUTHE(EUTHE):
+    def __init__(self, config = None, *args, **kwargs):
         super(AttentionEUTHE, self).__init__(config)
 
-    def _initialize(self, config = None):
+    def _initialize(self, config = None, *args, **kwargs):
         if config is None:
             self.config = AttentionEUTHC
         else:
@@ -219,13 +259,13 @@ class AttentionEUTHE(EUTHE):
         self.model_save_loader = ExtendSaveLoadParams
 
 
-class TimeLineEUTHE(UTHE):
-    def __init__(self, config = None):
-        super(TimeLineEUTHE, self).__init__(config)
+class TimeLineAttentionEUTHE(AttentionEUTHE):
+    def __init__(self, config=None):
+        super(TimeLineAttentionEUTHE, self).__init__(config)
 
-    def _initialize(self, config = None):
+    def _initialize(self, config=None, *args, **kwargs):
         if config is None:
-            self.config = TimeLineEUTHC
+            self.config = TimeLineAttentionEUTHC
         else:
             self.config = config
         self.raw_dataset = RUTHD(self.config)
@@ -263,7 +303,8 @@ class TimeLineEUTHE(UTHE):
             date_offset = self.config.begin_date
         T = self.config.T
         # TODO: iterate on date_offset to get dynamic result
-        for i in range(T-1):
+        for i in range(T - 1):
+            self.offset = i
             date = self.raw_dataset.first_date + datetime.timedelta(days=date_offset + i + 1)
             save_to = "{0}_{1}.pkl".format(model_base_name, str(date))
             train_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
@@ -293,13 +334,13 @@ class TimeLineEUTHE(UTHE):
         logger.info("Test model on date:{0} finished!".format(date))
 
 
-class NegTimeLineEUTHE(TimeLineEUTHE):
+class NegTimeLineAttentionEUTHE(TimeLineAttentionEUTHE):
     def __init__(self, config = None):
-        super(NegTimeLineEUTHE, self).__init__(config)
+        super(NegTimeLineAttentionEUTHE, self).__init__(config)
 
-    def _initialize(self, config = None):
+    def _initialize(self, config = None, *args, **kwargs):
         if config is None:
-            self.config = NegTimeLineEUTHC
+            self.config = NegTimeLineAttentionEUTHC
         else:
             self.config = config
         self.raw_dataset = RUTHD(self.config)
@@ -307,7 +348,7 @@ class NegTimeLineEUTHE(TimeLineEUTHE):
         self.model = None
         self.model_save_loader = ExtendSaveLoadParams
 
-    def test(self, test_stream, load_from):
+    def test(self, test_stream, load_from, *args, **kwargs):
         # Build model
         cg = Model(self.model.monitor_valid_vars[1][0])
         inputs = cg.inputs
@@ -334,7 +375,7 @@ class FDUTHE(object):
     def __init__(self):
         self._initialize()
 
-    def _initialize(self, config = None):
+    def _initialize(self, config = None, *args, **kwargs):
         if config is None:
             self.config = UTHC
         else:
@@ -342,7 +383,7 @@ class FDUTHE(object):
         self.raw_dataset = RUTHD(self.config)
         self.dataset = FDUTHD(self.config)
 
-    def do(self):
+    def do(self, *args, **kwargs):
         T = self.config.T
 
         # TODO: iterate on date_offset to get dynamic result
@@ -354,18 +395,45 @@ class FDUTHE(object):
                                            duration=1)
         self.dataset.set_train_data(train_raw_dataset)
         for alpha in range(1,10):
-            self.dataset.set_alpha(0.1*alpha)
+            self.dataset.set_alpha(0.001*alpha)
             top1_accuracy, top10_accuracy = self.dataset.test(test_raw_dataset)
-            print("top1 accuracy:{0} with alpha={1}".format(top1_accuracy, 0.1*alpha))
-            print("top10 accuracy:{0} with alpha={1}".format(top10_accuracy,0.1*alpha))
+            print("top1 accuracy:{0} with alpha={1}".format(top1_accuracy, 0.001*alpha))
+            print("top10 accuracy:{0} with alpha={1}".format(top10_accuracy,0.001*alpha))
+
+    def stat(self,*args, **kwargs):
+        T = self.config.T
+
+        # TODO: iterate on date_offset to get dynamic result
+        train_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+                                                         date_offset=T - 1,
+                                                         duration=self.config.time_window)
+        test_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
+                                                        date_offset=T,
+                                                        duration=1)
+        self.dataset.set_train_data(train_raw_dataset)
+        fields = zip(*test_raw_dataset)
+        test_users = fields[self.config.user_index]
+        test_hashtags = fields[self.config.hashtag_index]
+        top_n = 10
+        # alphas = (0,0.001,1)
+        alphas = (0,)
+        for alpha in alphas:
+            self.dataset.set_alpha(alpha)
+            print("alpha={0}".format(alpha))
+            result = numpy.zeros(10, dtype='int32')
+            for user,hashtag in zip(test_users,test_hashtags):
+                result += self.dataset.test_top_n(user,hashtag,top_n)
+            result_mean = 1.0*result/len(test_users)
+            for value in result_mean:
+                print(value)
 
 
-class TUTHE(EUTHE):
+class TUTHE(ETHE):
 
-    def __init__(self, config = None):
+    def __init__(self, config = None, *args, **kwargs):
         super(TUTHE,self).__init__(config)
 
-    def test(self, test_stream, load_from):
+    def test(self, test_stream, load_from, *args, **kwargs):
         load_from = self.config.model_path
         test_raw_dataset = self.raw_dataset.get_dataset(reference_date=self.raw_dataset.FIRST_DAY,
                                                         date_offset=self.config.T,
@@ -383,25 +451,27 @@ class TUTHE(EUTHE):
                                    before_training=True)
         initializer.do_load()
 
-        extensions = [
-            DataStreamMonitoring([v for l in self.model.monitor_train_vars for v in l],
+        # self._apply_droput(cg)
+
+        extension = MyDataStreamMonitoring([v for l in self.model.monitor_test_vars for v in l],
                                  test_stream,
+                                 coverage = self.dataset.hashtag_coverage,
                                  before_training=True,
                                  prefix='valid')
-        ]
+        date = self.raw_dataset.first_date + datetime.timedelta(days = self.config.T)
+        print('Test on date:{0} with hashtag coverage:{1}'.format(date, self.dataset.hashtag_coverage))
+        extension.do("before_training")
 
-        main_loop = MainLoop(
-            model=cg,
-            data_stream=None,
-            algorithm=None,
-            extensions=extensions
-        )
-        # Run the model !
-        try:
-            main_loop.run()
-        except Exception as e:
-            print(e.message)
+    #
+    # def _apply_droput(self, cg):
+    #     params = cg.get_parameter_values()
+    #     params['/word_embed.W'] *= 1-self.config.dropout_prob
+    #     # params['/user_embed.W'] *= 1-self.config.dropout_prob
+    #     params['/hashtag_embed.W'] *= 1-self.config.dropout_prob
+    #     cg.set_parameter_values(params)
 
 if __name__ ==  "__main__":
-    entrance = FDUTHE()
-    entrance.do()
+    config = ETHC
+    config.model_path  = os.path.join(config.project_dir,"output/model/RETH/RETH_2015-01-11.pkl")
+    entrance = TUTHE(config)
+    entrance.test(None,None)

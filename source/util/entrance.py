@@ -57,14 +57,16 @@ class MyDataStreamMonitoring(DataStreamMonitoring):
     """
     PREFIX_SEPARATOR = '_'
 
-    def __init__(self, variables, data_stream, updates=None, **kwargs):
+    def __init__(self, variables, data_stream, updates=None, coverage=1., **kwargs):
         super(MyDataStreamMonitoring, self).__init__(variables, data_stream, updates, **kwargs)
+        self.coverage = coverage
 
     def do(self, callback_name, *args):
         """Write the values of monitored variables to the log."""
         value_dict = self._evaluator.evaluate(self.data_stream)
+        print("Train test coverage:{0}".format(self.coverage))
         for key, value in value_dict.items():
-            print("{0}:{1}".format(key,value))
+            print("{0}:{1}".format(key, value * self.coverage))
 
 
 class BasicSaveLoadParams(SimpleExtension):
@@ -175,6 +177,24 @@ class ExtendSaveLoadParams(BasicSaveLoadParams):
                 cur_model_params[key] = value
 
 
+class ETHSaveLoadParams(ExtendSaveLoadParams):
+    def __init__(self, load_from, save_to, model, dataset, **kwargs):
+        super(ETHSaveLoadParams, self).__init__(load_from, save_to, model, dataset,**kwargs)
+
+    def do_initialize(self, last_model_params, last_dataset_params):
+        cur_dataset_params = self.dataset.get_parameter_to_save()
+        cur_model_params = self.model.get_parameter_values()
+        # Initialize LSTM params
+        self._initialize_other(last_model_params,last_dataset_params, cur_model_params, cur_dataset_params)
+        #region Initialize embedding params
+        # Initialize hashtag embedding
+        self._initialize_hashtag(last_model_params,last_dataset_params,cur_model_params, cur_dataset_params)
+        # Initialize word embedding
+        self._initialize_word(last_model_params,last_dataset_params,cur_model_params, cur_dataset_params)
+        #endregion
+        self.model.set_parameter_values(cur_model_params)
+
+
 class EarlyStopMonitor(DataStreamMonitoring):
     PREFIX_SEPARATOR = '_'
 
@@ -184,6 +204,7 @@ class EarlyStopMonitor(DataStreamMonitoring):
         self.data_stream = data_stream
         self.saver = saver
         self.best_result = -numpy.inf
+        self.last_result = -numpy.inf
         self.wait_time = 0
         self.tolerate_time = tolerate_time
         self.monitor_variable = monitor_variable
@@ -197,13 +218,21 @@ class EarlyStopMonitor(DataStreamMonitoring):
         self.check_stop(value_dict)
 
     def check_stop(self, value_dict):
-        if value_dict[self.monitor_variable.name] > self.best_result:
-            self.best_result = value_dict[self.monitor_variable.name]
+        result = value_dict[self.monitor_variable.name]
+        if result > self.last_result:
+            self.last_result = result
             self.wait_time = 0
-            if self.saver is not None:
-                self.saver.do_save()
+            if result > self.best_result:
+                self.best_result = result
+                if self.saver is not None:
+                    self.saver.do_save()
+                else:
+                    pass
+            else:
+                pass
         else:
             self.wait_time += 1
+            self.last_result = result
         if self.wait_time > self.tolerate_time:
             self.main_loop.status['batch_interrupt_received'] = True
             self.main_loop.status['epoch_interrupt_received'] = True

@@ -7,7 +7,7 @@ import codecs
 from blocks.bricks import Tanh, Softmax, Linear, MLP, Identity, Rectifier, Bias
 from blocks.bricks.lookup import LookupTable
 from blocks.bricks.recurrent import LSTM, SimpleRecurrent
-
+from blocks import theano_expressions
 from blocks.filter import VariableFilter
 from blocks.roles import WEIGHT
 from blocks.graph import ComputationGraph, apply_dropout, apply_noise
@@ -23,7 +23,7 @@ class UTHM(object):
     '''
     Basic User-text-hashtag model, with only user, word and hashtag embedding and without bias
     '''
-    def __init__(self, config, dataset):
+    def __init__(self, config, dataset, *args, **kwargs):
         '''
         Define User-text-hashtag model
         :param config:
@@ -34,7 +34,7 @@ class UTHM(object):
         self.rank = min(len(self.dataset.hashtag2index), 10)
         self._build_model()
 
-    def _build_model(self):
+    def _build_model(self, *args, **kwargs):
         # Define inputs
         self._define_inputs()
         self._build_bricks()
@@ -52,13 +52,13 @@ class UTHM(object):
         input_vec = tensor.concatenate([text_encodes, user_vec], axis=1)
         self._get_cost(input_vec)
 
-    def _define_inputs(self):
+    def _define_inputs(self, *args, **kwargs):
         self.user = tensor.ivector('user')
         self.hashtag = tensor.ivector('hashtag')
         self.text = tensor.imatrix('text')
         self.text_mask = tensor.matrix('text_mask', dtype=theano.config.floatX)
 
-    def _build_bricks(self):
+    def _build_bricks(self, *args, **kwargs):
         # Build lookup tables
         self.word_embed = self._embed(len(self.dataset.word2index), self.config.word_embed_dim, name='word_embed')
 
@@ -80,11 +80,11 @@ class UTHM(object):
         self.mlstm.biases_init = Constant(0)
         self.mlstm.initialize()
 
-    def _set_OV_value(self):
+    def _set_OV_value(self, *args, **kwargs):
         # Set embedding of OV words and users
         pass
 
-    def _get_cost(self, input_vec, *args):
+    def _get_cost(self, input_vec, *args, **kwargs):
         preds = self._get_pred_dist(input_vec)
         cost = Softmax().categorical_cross_entropy(self.hashtag, preds).mean()
         max_index = preds.argmax(axis=1)
@@ -101,19 +101,12 @@ class UTHM(object):
         self.monitor_train_vars = [[cost_drop], [top1_accuracy_drop], [top10_accuracy_drop]]
         self._get_test_cost(input_vec)
         self._get_valid_cost(input_vec)
-        self.cg_generator = cost_drop
+        self.cg_generator = self._apply_reg(cost_drop)
 
-    def _apply_dropout(self, outputs):
-        variables = [self.word_embed.W, self.user_embed.W, self.hashtag_embed.W]
-        cgs = ComputationGraph(outputs)
-        cg_dropouts = apply_dropout(cgs, variables, drop_prob=self.config.dropout_prob, seed=123).outputs
-        return cg_dropouts
-
-
-    def _get_pred_dist(self, input_vec, *args):
+    def _get_pred_dist(self, input_vec, *args, **kwargs):
         return tensor.dot(input_vec, self.hashtag_embed.W.T)
 
-    def _get_test_cost(self, input_vec):
+    def _get_test_cost(self, input_vec, *args, **kwargs):
         preds = self._get_pred_dist(input_vec)
         ranks = tensor.argsort(preds, axis=1)[:,::-1]
         top1_accuracy = tensor.eq(self.hashtag, ranks[:, 0]).mean()
@@ -122,7 +115,7 @@ class UTHM(object):
         top10_accuracy.name = "top10_accuracy"
         self.monitor_test_vars = [[top1_accuracy],[top10_accuracy]]
 
-    def _get_valid_cost(self, input_vec):
+    def _get_valid_cost(self, input_vec, *args, **kwargs):
         idx = tensor.ceil(input_vec.shape[0] * self.config.sample_percent_for_test).astype('int32')
         new_input_vec = input_vec[0:idx]
         preds = self._get_pred_dist(new_input_vec)
@@ -134,9 +127,34 @@ class UTHM(object):
         self.monitor_valid_vars = [[top1_accuracy],[top10_accuracy]]
         self.stop_monitor_var = top10_accuracy
 
+    def _get_extra_measure(self, input_vec, *args):
+        preds = self._get_pred_dist(input_vec)
+        ranks = tensor.argsort(preds, axis=1)[:, ::-1]
+        self.monitor_extra_vars = [ranks]
 
+    def _apply_dropout(self, outputs, *args, **kwargs):
+        variables = [self.word_embed.W, self.user_embed.W, self.hashtag_embed.W]
+        cgs = ComputationGraph(outputs)
+        cg_dropouts = apply_dropout(cgs, variables, drop_prob=self.config.dropout_prob, seed=123).outputs
+        return cg_dropouts
 
-    def _embed(self, sample_num, dim, name):
+    def _apply_reg(self, cost, params = None, *args, **kwargs):
+        '''
+        Apply regularization (default L2 norm) on parameters (default user, hashtag and word embedding)
+        :param params: A list of parameters to which regularization applied
+        :return:
+        '''
+        try:
+            if self.config.l2_norm > 0:
+                cost = cost + self.config.l2_norm*theano_expressions.l2_norm(
+                    tensors = [self.user_embed.W, self.hashtag_embed.W, self.word_embed.W])**2
+            else:
+                pass
+        except Exception:
+            pass
+        return cost
+
+    def _embed(self, sample_num, dim, name, *args, **kwargs):
         embed = LookupTable(sample_num, dim, name=name)
         embed.weights_init = IsotropicGaussian(std=1 / numpy.sqrt(dim))
         embed.initialize()
@@ -147,10 +165,10 @@ class EUTHM(UTHM):
     '''
     UTH model with extend information and negtive sampling
     '''
-    def __init__(self, config, dataset):
+    def __init__(self, config, dataset, *args, **kwargs):
         super(EUTHM, self).__init__(config, dataset)
 
-    def _build_model(self):
+    def _build_model(self, *args, **kwargs):
         # Define inputs
         self._define_inputs()
         self._build_bricks()
@@ -175,7 +193,7 @@ class EUTHM(UTHM):
         input_vec = tensor.concatenate([text_encodes, user_vec], axis=1)
         self._get_cost(input_vec, None, None)
 
-    def _define_inputs(self):
+    def _define_inputs(self, *args, **kwargs):
         super(EUTHM, self)._define_inputs()
         self.user_word = tensor.ivector('user_word')
         self.user_word_sparse_mask = tensor.vector('user_word_sparse_mask', dtype=theano.config.floatX)
@@ -191,7 +209,7 @@ class EUTHM(UTHM):
         self.sparse_word_left_idx = tensor.ivector('sparse_word_idx_left_idx')
         self.sparse_word_right_idx = tensor.ivector('sparse_word_idx_right_idx')
 
-    def _build_bricks(self):
+    def _build_bricks(self, *args, **kwargs):
         # Build lookup tables
         super(EUTHM, self)._build_bricks()
         self.user2word = MLP(activations=[Tanh('user2word_tanh')], dims=[self.config.user_embed_dim, self.config.word_embed_dim], name='user2word_mlp')
@@ -220,11 +238,11 @@ class EUTHM(UTHM):
         self.rnn.weights_init = IsotropicGaussian(std=1 / numpy.sqrt(self.config.word_embed_dim))
         self.rnn.initialize()
 
-    def _set_OV_value(self):
+    def _set_OV_value(self, *args, **kwargs):
         '''Train a <unk> representation'''
         pass
 
-    def _apply_user_word(self, text_vec):
+    def _apply_user_word(self, text_vec, *args, **kwargs):
 
         user_word_vec = self.user2word.apply(self.user_embed.apply(self.user_word)) + \
                         self.user2word_bias.parameters[0][0]
@@ -234,7 +252,7 @@ class EUTHM(UTHM):
                                         user_word_vec * self.user_word_sparse_mask[:, None])
         return text_vec
 
-    def _apply_hashtag_word(self, text_vec):
+    def _apply_hashtag_word(self, text_vec, *args, **kwargs):
         hashtag_word_vec = self.hashtag2word.apply(self.hashtag_embed.apply(self.hashtag_word)) +\
                            self.hashtag2word_bias.parameters[0][0]
         text_vec = tensor.set_subtensor(text_vec[self.hashtag_word_right_idx, self.hashtag_word_left_idx],
@@ -243,7 +261,7 @@ class EUTHM(UTHM):
                                         + hashtag_word_vec * self.hashtag_sparse_mask[:, None])
         return text_vec
 
-    def _apply_sparse_word(self, text_vec):
+    def _apply_sparse_word(self, text_vec, *args, **kwargs):
         sparse_word_vec = self.char_embed.apply(self.sparse_word)
         sparse_word_hiddens = self.rnn.apply(inputs=self.rnn_ins.apply(sparse_word_vec), mask=self.sparse_word_mask)
         tmp = sparse_word_hiddens[-1]
@@ -254,14 +272,111 @@ class EUTHM(UTHM):
         return text_vec
 
 
+class ETHM(EUTHM):
+    def __init__(self, config, dataset, *args, **kwargs):
+        super(ETHM, self).__init__(config, dataset)
+
+    def _build_model(self, *args, **kwargs):
+        # Define inputs
+        self._define_inputs()
+        self._build_bricks()
+        self._set_OV_value()
+        # Transpose text
+        self.text = self.text.dimshuffle(1, 0)
+        self.text_mask = self.text_mask.dimshuffle(1, 0)
+        self.sparse_word = self.sparse_word.dimshuffle(1, 0)
+        self.sparse_word_mask = self.sparse_word_mask.dimshuffle(1, 0)
+        # Turn word, and hashtag into vector representation
+        text_vec = self.word_embed.apply(self.text)
+        # Apply word and hashtag word and url
+        text_vec = self._apply_hashtag_word(text_vec)
+        text_vec = self._apply_sparse_word(text_vec)
+        # Encode text
+        mlstm_hidden, mlstm_cell = self.mlstm.apply(inputs=self.mlstm_ins.apply(text_vec),
+                                                    mask=self.text_mask.astype(theano.config.floatX))
+        text_encodes = mlstm_hidden[-1]
+        input_vec = text_encodes
+        self._get_cost(input_vec, None, None)
+
+    def _define_inputs(self, *args, **kwargs):
+        self.hashtag = tensor.ivector('hashtag')
+        self.text = tensor.imatrix('text')
+        self.text_mask = tensor.matrix('text_mask', dtype=theano.config.floatX)
+        self.hashtag_word = tensor.ivector('hashtag_word')
+        self.hashtag_sparse_mask = tensor.vector('hashtag_word_sparse_mask', dtype=theano.config.floatX)
+        self.hashtag_word_left_idx = tensor.ivector('hashtag_word_idx_left_idx')
+        self.hashtag_word_right_idx = tensor.ivector('hashtag_word_idx_right_idx')
+        self.sparse_word = tensor.imatrix('sparse_word')
+        self.sparse_word_sparse_mask = tensor.vector('sparse_word_sparse_mask', dtype=theano.config.floatX)
+        self.sparse_word_mask = tensor.matrix('sparse_word_mask', dtype=theano.config.floatX)
+        self.sparse_word_left_idx = tensor.ivector('sparse_word_idx_left_idx')
+        self.sparse_word_right_idx = tensor.ivector('sparse_word_idx_right_idx')
+
+    def _build_bricks(self, *args, **kwargs):
+        # Build lookup tables
+        self.word_embed = self._embed(len(self.dataset.word2index), self.config.word_embed_dim, name='word_embed')
+
+        self.hashtag_embed = self._embed(len(self.dataset.hashtag2index),
+                                         self.config.lstm_dim,
+                                         name='hashtag_embed')
+        # Build text encoder
+        self.mlstm_ins = Linear(input_dim=self.config.word_embed_dim, output_dim=4 * self.config.lstm_dim,
+                                name='mlstm_in')
+        self.mlstm_ins.weights_init = IsotropicGaussian(
+            std=numpy.sqrt(2) / numpy.sqrt(self.config.word_embed_dim + self.config.lstm_dim))
+        self.mlstm_ins.biases_init = Constant(0)
+        self.mlstm_ins.initialize()
+        self.mlstm = MLSTM(self.config.lstm_time, self.config.lstm_dim, shared=False)
+        self.mlstm.weights_init = IsotropicGaussian(
+            std=numpy.sqrt(2) / numpy.sqrt(self.config.word_embed_dim + self.config.lstm_dim))
+        self.mlstm.biases_init = Constant(0)
+        self.mlstm.initialize()
+        self.hashtag2word = MLP(activations=[Tanh('hashtag2word_tanh')], dims=[self.config.lstm_dim, self.config.word_embed_dim], name = 'hashtag2word_mlp')
+        self.hashtag2word.weights_init = IsotropicGaussian(std = 1/numpy.sqrt(self.config.word_embed_dim))
+        self.hashtag2word.biases_init = Constant(0)
+        self.hashtag2word.initialize()
+        self.hashtag2word_bias = Bias(dim=1, name='hashtag2word_bias')
+        self.hashtag2word_bias.biases_init = Constant(0)
+        self.hashtag2word_bias.initialize()
+        #Build character embedding
+        self.char_embed = self._embed(len(self.dataset.char2index), self.config.char_embed_dim, name='char_embed')
+        # Build sparse word encoder
+        self.rnn_ins = Linear(input_dim=self.config.char_embed_dim, output_dim=self.config.word_embed_dim, name='rnn_in')
+        self.rnn_ins.weights_init = IsotropicGaussian(
+            std=numpy.sqrt(2) / numpy.sqrt(self.config.char_embed_dim + self.config.word_embed_dim))
+        self.rnn_ins.biases_init = Constant(0)
+        self.rnn_ins.initialize()
+        self.rnn = SimpleRecurrent(dim=self.config.word_embed_dim, activation=Tanh())
+        self.rnn.weights_init = IsotropicGaussian(std=1 / numpy.sqrt(self.config.word_embed_dim))
+        self.rnn.initialize()
+
+    def _apply_dropout(self, outputs, *args, **kwargs):
+        variables = [self.word_embed.W, self.hashtag_embed.W]
+        cgs = ComputationGraph(outputs)
+        cg_dropouts = apply_dropout(cgs, variables, drop_prob=self.config.dropout_prob, seed=123).outputs
+        return cg_dropouts
+
+    def _apply_reg(self, cost, params = None, *args, **kwargs):
+        try:
+            if self.config.l2_norm > 0:
+                cost = cost + self.config.l2_norm*theano_expressions.l2_norm(
+                    tensors = [self.hashtag_embed.W, self.word_embed.W])**2
+
+            else:
+                pass
+        except Exception:
+            pass
+        return cost
+
+
 class AttentionEUTHM(EUTHM):
     '''
     EUTHM with user attention
     '''
-    def __init__(self, config, dataset):
+    def __init__(self, config, dataset, *args, **kwargs):
         super(EUTHM, self).__init__(config, dataset)
 
-    def _build_model(self):
+    def _build_model(self, *args, **kwargs):
         # Define inputs
         self._define_inputs()
         self._build_bricks()
@@ -287,7 +402,7 @@ class AttentionEUTHM(EUTHM):
         input_vec = tensor.concatenate([text_encodes, user_vec], axis=1)
         self._get_cost(input_vec, None, None)
 
-    def _build_bricks(self):
+    def _build_bricks(self, *args, **kwargs):
         super(AttentionEUTHM, self)._build_bricks()
         self.mlstm_ins = Linear(input_dim=self.config.word_embed_dim+self.config.user_embed_dim, output_dim=4 * self.config.lstm_dim,
                                 name='mlstm_in')
@@ -298,7 +413,7 @@ class AttentionEUTHM(EUTHM):
 
 
 class NegAttentionEUTHM(AttentionEUTHM):
-    def __init__(self, config, dataset):
+    def __init__(self, config, dataset, *args, **kwargs):
         '''
         Define User-text-hashtag model with negtive sampling
         :param config:
@@ -306,7 +421,7 @@ class NegAttentionEUTHM(AttentionEUTHM):
         '''
         super(NegAttentionEUTHM, self).__init__(config, dataset)
 
-    def _build_model(self):
+    def _build_model(self, *args, **kwargs):
         # Define inputs
         self._define_inputs()
         self._build_bricks()
@@ -336,11 +451,11 @@ class NegAttentionEUTHM(AttentionEUTHM):
         input_vec = tensor.concatenate([text_encodes, user_vec], axis=1)
         self._get_cost(input_vec, true_hashtag_vec, neg_hashtag_vec)
 
-    def _define_inputs(self):
+    def _define_inputs(self, *args, **kwargs):
         super(NegAttentionEUTHM, self)._define_inputs()
         self.neg_hashtag = tensor.imatrix('hashtag_negtive_sample')
 
-    def _get_cost(self, input_vec, *args):
+    def _get_cost(self, input_vec, *args, **kwargs):
         def get_cost(enc, th, nh):
             '''
             :param enc: text encoding
@@ -375,7 +490,7 @@ class TUTHM(UTHM):
     def __init__(self, config, dataset):
         super(TUTHM, self).__init__(config, dataset)
 
-    def _get_cost(self, input_vec, true_hashtag_vec, neg_hashtag_vec):
+    def _get_cost(self, input_vec, true_hashtag_vec, neg_hashtag_vec, *args, **kwargs):
         rank = min(len(self.dataset.hashtag2index), 10)
         preds = tensor.argsort(tensor.dot(input_vec, self.hashtag_embed.W.T), axis=1)[:, ::-1]
         top1_accuracy = tensor.eq(self.hashtag, preds[:, 0]).mean()

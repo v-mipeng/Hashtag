@@ -26,7 +26,7 @@ class BasicConfig:
     step_rule = AdaDelta()
 
     # Measured by batches, e.g, valid every 1000 batches
-    print_freq = 100
+    print_freq = 10
     save_freq = 1000
     # Measured by epoch
     valid_freq = 0.5
@@ -39,7 +39,8 @@ class UTHC(BasicConfig):
     model_path = os.path.join(BasicConfig.project_dir, "output/model/UTH/UTH.pkl")
 
     # If is directory, read all the files with extension ".txt"
-    train_path = os.path.join(BasicConfig.project_dir, "data/unit test/posts.pkl")
+    train_path = os.path.join(BasicConfig.project_dir, "data/tweet/first_11_days.pkl")
+    # train_path = os.path.join(BasicConfig.project_dir, "data/unit test/posts.pkl")
 
     test_path = os.path.join(BasicConfig.project_dir, "data/test/")
 
@@ -84,7 +85,7 @@ class UTHC(BasicConfig):
     valid_percent = 0.2
 
     # valid on 0.1* size of validation dataset
-    sample_percent_for_test = 0.2
+    sample_percent_for_test = 1.
 
     # region Model control parameters
     user_embed_dim = 50
@@ -99,7 +100,6 @@ class UTHC(BasicConfig):
 
     dropout_prob = 0.2
 
-
     # endregion
 
 
@@ -110,31 +110,41 @@ class EUTHC(UTHC):
 
     user_name2id_path = os.path.join(BasicConfig.project_dir, "data/tweet/user_name2id.pkl")
 
-    train_path = os.path.join(BasicConfig.project_dir, "data/unit test/posts.pkl")
-
     # character embedding dimention
     char_embed_dim = 10
+
+
+class ETHC(EUTHC):
+    Model = ETHM
+
+    model_path = os.path.join(BasicConfig.project_dir, 'output/model/ETH/ETH.pkl')
 
 
 class AttentionEUTHC(EUTHC):
     Model = AttentionEUTHM
 
+    model_path = os.path.join(BasicConfig.project_dir, 'output/model/AEUTH/AEUTH.pkl')
 
-class TimeLineEUTHC(EUTHC):
+
+class TimeLineAttentionEUTHC(EUTHC):
     Model = AttentionEUTHM
 
     model_path = os.path.join(BasicConfig.project_dir, 'output/model/TAEUTH/TAEUTH.pkl')
 
     valid_freq = 0.5
 
-    sample_percent_for_test = 0.5
+    max_valid_freq = 0.5
 
-    tolerate_time = 10
+    sample_percent_for_test = 1.
 
-    dropout_prob = 0.5
+    tolerate_time = 5
+
+    dropout_prob = 0.2
+
+    l2_norm = 0.1
 
 
-class NegTimeLineEUTHC(TimeLineEUTHC):
+class NegTimeLineAttentionEUTHC(TimeLineAttentionEUTHC):
     Model = NegAttentionEUTHM
 
     model_path = os.path.join(BasicConfig.project_dir, 'output/model/NTAEUTH/NTAEUTH.pkl')
