@@ -133,15 +133,17 @@ class TimeLineAttentionEUTHC(EUTHC):
 
     valid_freq = 0.5
 
-    max_valid_freq = 0.5
-
-    sample_percent_for_test = 1.
+    sample_percent_for_test = 0.5
 
     tolerate_time = 5
 
+    max_epoch = 20
+
     dropout_prob = 0.2
 
-    l2_norm = 0.1
+    l2_norm = 0.05
+
+    T = 30
 
 
 class NegTimeLineAttentionEUTHC(TimeLineAttentionEUTHC):

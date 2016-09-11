@@ -166,6 +166,7 @@ class UTHE(object):
         # Run the model !
         main_loop.run()
 
+
     def test(self, test_stream, load_from, *args, **kwargs):
         # Build model
         self.model = self.config.Model(self.config, self.dataset)  # with word2id
@@ -290,7 +291,6 @@ class TimeLineAttentionEUTHE(AttentionEUTHE):
                 '''
         load_from = self.config.model_path
         model_base_name, _ = os.path.splitext(self.config.model_path)
-        count = 0
         self.raw_dataset.prepare()
         if self.config.begin_date is None:
             date_offset = 0
@@ -332,6 +332,67 @@ class TimeLineAttentionEUTHE(AttentionEUTHE):
         logging.info("Test model on date:{0} ...".format(date))
         self.test(test_stream, load_from=save_to)
         logger.info("Test model on date:{0} finished!".format(date))
+
+    def _train_model(self, train_stream, valid_stream, load_from, save_to, *args, **kwargs):
+        # Build model
+        self.model = self.config.Model(self.config, self.dataset)  # with word2id
+
+        cg = Model(self.model.cg_generator)
+
+        algorithm = GradientDescent(cost=self.model.cg_generator,
+                                    step_rule=self.config.step_rule,
+                                    parameters=cg.parameters,
+                                    on_unused_sources='ignore')
+
+        if plot_avail:
+            extensions = [FinishAfter(after_n_epochs=1),
+                          TrainingDataMonitoring([v for l in self.model.monitor_vars for v in l],
+                                                 prefix='train',
+                                                 every_n_batches=self.config.print_freq),
+                          Plot('Training Process',
+                               channels=[[self.model.monitor_train_vars[0][0].name],
+                                         [self.model.monitor_train_vars[1][0].name]],
+                               after_batch=True)]
+        else:
+            extensions = [
+                TrainingDataMonitoring(
+                    [v for l in self.model.monitor_train_vars for v in l],
+                    prefix='train',
+                    every_n_batches=self.config.print_freq)
+            ]
+        extensions +=[EpochMonitor(self.config.max_epoch)]
+        saver_loader = self.model_save_loader(load_from=load_from,
+                                              save_to=save_to,
+                                              model=cg,
+                                              dataset=self.dataset)
+        saver_loader.do_load()
+
+        n_batches = numpy.ceil(self.n_samples/self.config.batch_size).astype('int32')
+        n_valid_batches = numpy.ceil(n_batches*self.config.valid_freq).astype('int32')
+        extensions += [
+            EvaluatorWithEarlyStop(
+                coverage=self.dataset.hashtag_coverage,
+                tolerate_time=self.config.tolerate_time,
+                variables=[v for l in self.model.monitor_valid_vars for v in l],
+                monitor_variable=self.model.stop_monitor_var,
+                data_stream=valid_stream,
+                saver=saver_loader,
+                prefix='valid',
+                every_n_batches=n_valid_batches)
+        ]
+
+        extensions += [
+            Printing(every_n_batches=self.config.print_freq, after_epoch=True),
+            ProgressBar()
+        ]
+        main_loop = MainLoop(
+            model=cg,
+            data_stream=train_stream,
+            algorithm=algorithm,
+            extensions=extensions
+        )
+        # Run the model !
+        main_loop.run()
 
 
 class NegTimeLineAttentionEUTHE(TimeLineAttentionEUTHE):

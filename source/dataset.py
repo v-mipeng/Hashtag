@@ -1077,51 +1077,51 @@ class TimeLineEUTHD(EUTHD):
     def __init__(self, config):
         super(TimeLineEUTHD, self).__init__(config)
 
-    def _initialize(self):
-        dataset_prarms = super(TimeLineEUTHD, self)._initialize()
-        if os.path.exists(self.config.model_path):
-            self.hashtag2date = dataset_prarms['hashtag2date']
-            return dataset_prarms
-        else:
-            self.hashtag2date = {}
-            return None
-
-    def get_parameter_to_save(self):
-        '''
-        Return parameters that need to be saved with model
-        :return: OrderedDict
-        '''
-        dic = super(TimeLineEUTHD, self).get_parameter_to_save()
-        dic['hashtag2date'] = self.hashtag2date
-        return dic
-
-    def _update_before_transform(self, raw_dataset, for_type='train'):
-        '''
-
-        :param raw_dataset: The dataset of current day
-        :param for_type:
-        :return:
-        '''
-        raw_dataset = super(TimeLineEUTHD, self)._update_before_transform(raw_dataset, for_type)
-        if for_type == 'train':
-            fields = zip(*raw_dataset)
-            dates = fields[self.config.date_index]
-            assert (numpy.array(dates) != dates[0]).sum() == 0
-            current_date = fields[self.config.date_index][0]
-            expire_date = current_date - datetime.timedelta(days=self.config.time_window)
-            hashtags = fields[self.config.hashtag_index]
-            for hashtag in hashtags:
-                self.hashtag2date[hashtag] = current_date
-            for hashtag, date in self.hashtag2date.items():
-                if date <= expire_date:
-                    self.hashtag2index.pop(hashtag, None)
-                    self.hashtag2date.pop(hashtag, None)
-                else:
-                    pass
-            self.hashtag_coverage = 1.
-        else:
-            pass
-        return raw_dataset
+    # def _initialize(self):
+    #     dataset_prarms = super(TimeLineEUTHD, self)._initialize()
+    #     if os.path.exists(self.config.model_path):
+    #         self.hashtag2date = dataset_prarms['hashtag2date']
+    #         return dataset_prarms
+    #     else:
+    #         self.hashtag2date = {}
+    #         return None
+    #
+    # def get_parameter_to_save(self):
+    #     '''
+    #     Return parameters that need to be saved with model
+    #     :return: OrderedDict
+    #     '''
+    #     dic = super(TimeLineEUTHD, self).get_parameter_to_save()
+    #     dic['hashtag2date'] = self.hashtag2date
+    #     return dic
+    #
+    # def _update_before_transform(self, raw_dataset, for_type='train'):
+    #     '''
+    #
+    #     :param raw_dataset: The dataset of current day
+    #     :param for_type:
+    #     :return:
+    #     '''
+    #     raw_dataset = super(TimeLineEUTHD, self)._update_before_transform(raw_dataset, for_type)
+    #     if for_type == 'train':
+    #         fields = zip(*raw_dataset)
+    #         dates = fields[self.config.date_index]
+    #         assert (numpy.array(dates) != dates[0]).sum() == 0
+    #         current_date = fields[self.config.date_index][0]
+    #         expire_date = current_date - datetime.timedelta(days=self.config.time_window)
+    #         hashtags = fields[self.config.hashtag_index]
+    #         for hashtag in hashtags:
+    #             self.hashtag2date[hashtag] = current_date
+    #         for hashtag, date in self.hashtag2date.items():
+    #             if date <= expire_date:
+    #                 self.hashtag2index.pop(hashtag, None)
+    #                 self.hashtag2date.pop(hashtag, None)
+    #             else:
+    #                 pass
+    #         self.hashtag_coverage = 1.
+    #     else:
+    #         pass
+    #     return raw_dataset
 
 
 class NegTimeLineEUTHD(TimeLineEUTHD):
