@@ -166,7 +166,6 @@ class UTHE(object):
         # Run the model !
         main_loop.run()
 
-
     def test(self, test_stream, load_from, *args, **kwargs):
         # Build model
         self.model = self.config.Model(self.config, self.dataset)  # with word2id
