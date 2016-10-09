@@ -8,8 +8,8 @@ import cPickle
 import theano.tensor as tensor
 import theano
 from blocks.extensions import SimpleExtension
-from blocks.extensions.monitoring import *
-from blocks.monitoring.evaluators import *
+from blocks.extensions.monitoring import DataStreamMonitoring
+from blocks.monitoring.evaluators import DatasetEvaluator
 from blocks.theano_expressions import l2_norm
 from blocks.algorithms import Scale
 from picklable_itertools.extras import equizip
@@ -159,6 +159,19 @@ class BasicSaveLoadParams(SimpleExtension):
             self.do_save()
 
 
+class UHSaveLoadParams(BasicSaveLoadParams):
+    def __init__(self, load_from, save_to, model, dataset,  **kwargs):
+        super(UHSaveLoadParams, self).__init__(load_from, save_to, model, dataset)
+
+    def _initialize_word(self,last_model_params, last_dataset_params,
+                            cur_model_params, cur_dataset_params):
+        pass
+
+    def _initialize_other(self, last_model_params, last_dataset_params,
+                          cur_model_params, cur_dataset_params):
+        pass
+
+
 class ExtendSaveLoadParams(BasicSaveLoadParams):
     def __init__(self, load_from, save_to, model, dataset, **kwargs):
         super(ExtendSaveLoadParams, self).__init__(load_from, save_to, model, dataset,**kwargs)
@@ -214,8 +227,8 @@ class EarlyStopMonitor(DataStreamMonitoring):
         logger.info("Monitoring on auxiliary data started")
         value_dict = self._evaluator.evaluate(self.data_stream)
         self.add_records(self.main_loop.log, value_dict.items())
-        logger.info("Monitoring on auxiliary data finished")
         self.check_stop(value_dict)
+        logger.info("Monitoring on auxiliary data finished")
 
     def check_stop(self, value_dict):
         result = value_dict[self.monitor_variable.name]
@@ -238,77 +251,6 @@ class EarlyStopMonitor(DataStreamMonitoring):
             self.main_loop.status['epoch_interrupt_received'] = True
 
 
-class MyTrainingDataMonitoring(SimpleExtension, MonitoringExtension):
-    """Monitors values of Theano variables on training batches.
-
-    Use this extension to monitor a quantity on every training batch
-    cheaply. It integrates with the training algorithm in order to avoid
-    recomputing same things several times. For instance, if you are
-    training a network and you want to log the norm of the gradient on
-    every batch, the backpropagation will only be done once.  By
-    controlling the frequency with which the :meth:`do` method is called,
-    you can aggregate the monitored variables, e.g. only log the gradient
-    norm average over an epoch.
-
-    Parameters
-    ----------
-    variables : list of :class:`~tensor.TensorVariable`
-        The variables to monitor. The variable names are used as record
-        names in the logs.
-
-    Notes
-    -----
-    All the monitored variables are evaluated _before_ the parameter
-    update.
-
-    Requires the training algorithm to be an instance of
-    :class:`.DifferentiableCostMinimizer`.
-
-    """
-    def __init__(self, variables, monitor_var, value_threshold, **kwargs):
-        kwargs.setdefault("before_training", True)
-        super(MyTrainingDataMonitoring, self).__init__(**kwargs)
-        self._buffer = AggregationBuffer(variables, use_take_last=True) #TODO: check here
-        self._last_time_called = -1
-        self.monitor_var = monitor_var
-        self.value_threshold = value_threshold
-
-    def do(self, callback_name, *args):
-        """Initializes the buffer or commits the values to the log.
-
-        What this method does depends on from what callback it is called.
-        When called within `before_training`, it initializes the
-        aggregation buffer and instructs the training algorithm what
-        additional computations should be carried at each step by adding
-        corresponding updates to it. In all other cases it writes
-        aggregated values of the monitored variables to the log.
-
-        """
-        if callback_name == 'before_training':
-            if not isinstance(self.main_loop.algorithm,
-                              DifferentiableCostMinimizer):
-                raise ValueError
-            self.main_loop.algorithm.add_updates(
-                self._buffer.accumulation_updates)
-            self._buffer.initialize_aggregators()
-        else:
-            if (self.main_loop.status['iterations_done'] ==
-                    self._last_time_called):
-                raise Exception("TrainingDataMonitoring.do should be invoked"
-                                " no more than once per iteration")
-            self._last_time_called = self.main_loop.status['iterations_done']
-            self.add_records(self.main_loop.log,
-                             self._buffer.get_aggregated_values().items())
-            self.check_stop()
-            self._buffer.initialize_aggregators()
-
-    def check_stop(self):
-        value = self._buffer.get_aggregated_values()[self.monitor_var.name]
-        if value > self.value_threshold:
-            self.main_loop.status['batch_interrupt_received'] = True
-            self.main_loop.status['epoch_interrupt_received'] = True
-
-
 class EvaluatorWithEarlyStop(EarlyStopMonitor):
     def __init__(self, coverage, **kwargs):
         super(EvaluatorWithEarlyStop, self).__init__(**kwargs)
@@ -321,9 +263,12 @@ class EvaluatorWithEarlyStop(EarlyStopMonitor):
         for key in value_dict.keys():
             value_dict[key] *= self.coverage
         value_dict['coverage'] = self.coverage
+        logging.info("coverage:{0}".format(self.coverage))
+        for key, value in value_dict.items():
+            logging.info("{0}:{1}".format(key,value))
         self.add_records(self.main_loop.log, value_dict.items())
-        logger.info("Monitoring on auxiliary data finished")
         self.check_stop(value_dict)
+        logger.info("Monitoring on auxiliary data finished")
 
 
 class ForgetExtendSaveLoadParams(BasicSaveLoadParams):

@@ -101,7 +101,8 @@ class UTHM(object):
         self.monitor_train_vars = [[cost_drop], [top1_accuracy_drop], [top10_accuracy_drop]]
         self._get_test_cost(input_vec)
         self._get_valid_cost(input_vec)
-        self.cg_generator = self._apply_reg(cost_drop)
+        self._get_extra_measure(input_vec)
+        self.cg_generator = cost_drop
 
     def _get_pred_dist(self, input_vec, *args, **kwargs):
         return tensor.dot(input_vec, self.hashtag_embed.W.T)
@@ -272,6 +273,72 @@ class EUTHM(UTHM):
         return text_vec
 
 
+class NegEUTHM(EUTHM):
+    def __init__(self, config, dataset, *args, **kwargs):
+        super(NegEUTHM, self).__init__(config, dataset)
+
+    def _build_model(self, *args, **kwargs):
+        # Define inputs
+        self._define_inputs()
+        self._build_bricks()
+        self._set_OV_value()
+        # Transpose text
+        self.text = self.text.dimshuffle(1, 0)
+        self.text_mask = self.text_mask.dimshuffle(1, 0)
+        self.sparse_word = self.sparse_word.dimshuffle(1, 0)
+        self.sparse_word_mask = self.sparse_word_mask.dimshuffle(1, 0)
+        # Turn word, user and hashtag into vector representation
+        text_vec = self.word_embed.apply(self.text)
+        user_vec = self.user_embed.apply(self.user)
+        true_hashtag_vec = self.hashtag_embed.apply(self.hashtag)
+        neg_hashtag_vec = self.hashtag_embed.apply(self.neg_hashtag)
+        # Apply user word, hashtag word and sparse word
+        text_vec = self._apply_user_word(text_vec)
+        text_vec = self._apply_hashtag_word(text_vec)
+        text_vec = self._apply_sparse_word(text_vec)
+        # Encode text
+        mlstm_hidden, mlstm_cell = self.mlstm.apply(inputs=self.mlstm_ins.apply(text_vec),
+                                                    mask=self.text_mask.astype(theano.config.floatX))
+        text_encodes = mlstm_hidden[-1]
+        input_vec = tensor.concatenate([text_encodes, user_vec], axis=1)
+        self._get_cost(input_vec, true_hashtag_vec, neg_hashtag_vec)
+
+    def _define_inputs(self, *args, **kwargs):
+        super(NegEUTHM, self)._define_inputs()
+        self.neg_hashtag = tensor.imatrix('hashtag_negtive_sample')
+
+    def _get_cost(self, input_vec, *args, **kwargs):
+        def get_cost(enc, th, nh):
+            '''
+            :param enc: text encoding
+            :param th: true hashtag
+            :param nh: negtive hashtags
+            :return:
+            '''
+            # return tensor.dot(enc, th), tensor.dot(nh,enc)
+            return enc.dot(th), nh.dot(enc)
+
+        true_hashtag_vec = args[0]
+        neg_hashtag_vec = args[1]
+        (t_pred, n_pred), _ = theano.scan(get_cost,
+                                          sequences=[input_vec, true_hashtag_vec, neg_hashtag_vec],
+                                          n_steps=self.hashtag.shape[0])
+        cost = numpy.log(1. / (1. + numpy.exp(-t_pred))).mean() + numpy.log(1. / (1. + numpy.exp(n_pred))).sum(
+            axis=1).mean()
+        cost = -cost
+        cost.name = 'cost'
+        pred = tensor.concatenate([t_pred[:, None], n_pred], axis=1)
+        max_index = pred.argmax(axis=1)
+        error_rate = tensor.neq(0, max_index).mean()
+        error_rate.name = 'error_rate'
+        cost_drop, error_rate_drop = self._apply_dropout([cost, error_rate])
+        self.monitor_train_vars = [[cost_drop], [error_rate_drop]]
+        self._get_test_cost(input_vec)
+        self._get_valid_cost(input_vec)
+        self._get_extra_measure(input_vec)
+        self.cg_generator = cost_drop
+
+
 class ETHM(EUTHM):
     def __init__(self, config, dataset, *args, **kwargs):
         super(ETHM, self).__init__(config, dataset)
@@ -349,6 +416,88 @@ class ETHM(EUTHM):
         self.rnn = SimpleRecurrent(dim=self.config.word_embed_dim, activation=Tanh())
         self.rnn.weights_init = IsotropicGaussian(std=1 / numpy.sqrt(self.config.word_embed_dim))
         self.rnn.initialize()
+
+    def _apply_dropout(self, outputs, *args, **kwargs):
+        variables = [self.word_embed.W, self.hashtag_embed.W]
+        cgs = ComputationGraph(outputs)
+        cg_dropouts = apply_dropout(cgs, variables, drop_prob=self.config.dropout_prob, seed=123).outputs
+        return cg_dropouts
+
+    def _apply_reg(self, cost, params = None, *args, **kwargs):
+        try:
+            if self.config.l2_norm > 0:
+                cost = cost + self.config.l2_norm*theano_expressions.l2_norm(
+                    tensors = [self.hashtag_embed.W, self.word_embed.W])**2
+
+            else:
+                pass
+        except Exception:
+            pass
+        return cost
+
+
+class NegETHM(ETHM):
+    def __init__(self, config, dataset, *args, **kwargs):
+        super(NegETHM, self).__init__(config, dataset)
+
+    def _build_model(self, *args, **kwargs):
+        # Define inputs
+        self._define_inputs()
+        self._build_bricks()
+        self._set_OV_value()
+        # Transpose text
+        self.text = self.text.dimshuffle(1, 0)
+        self.text_mask = self.text_mask.dimshuffle(1, 0)
+        self.sparse_word = self.sparse_word.dimshuffle(1, 0)
+        self.sparse_word_mask = self.sparse_word_mask.dimshuffle(1, 0)
+        # Turn word, and hashtag into vector representation
+        text_vec = self.word_embed.apply(self.text)
+        true_hashtag_vec = self.hashtag_embed.apply(self.hashtag)
+        neg_hashtag_vec = self.hashtag_embed.apply(self.neg_hashtag)
+        # Apply word and hashtag word and url
+        text_vec = self._apply_hashtag_word(text_vec)
+        text_vec = self._apply_sparse_word(text_vec)
+        # Encode text
+        mlstm_hidden, mlstm_cell = self.mlstm.apply(inputs=self.mlstm_ins.apply(text_vec),
+                                                    mask=self.text_mask.astype(theano.config.floatX))
+        text_encodes = mlstm_hidden[-1]
+        input_vec = text_encodes
+        self._get_cost(input_vec, true_hashtag_vec, neg_hashtag_vec)
+
+    def _define_inputs(self, *args, **kwargs):
+        super(NegETHM, self)._define_inputs()
+        self.neg_hashtag = tensor.imatrix('hashtag_negtive_sample')
+
+    def _get_cost(self, input_vec, *args, **kwargs):
+        def get_cost(enc, th, nh):
+            '''
+            :param enc: text encoding
+            :param th: true hashtag
+            :param nh: negtive hashtags
+            :return:
+            '''
+            # return tensor.dot(enc, th), tensor.dot(nh,enc)
+            return enc.dot(th), nh.dot(enc)
+
+        true_hashtag_vec = args[0]
+        neg_hashtag_vec = args[1]
+        (t_pred, n_pred), _ = theano.scan(get_cost,
+                                          sequences=[input_vec, true_hashtag_vec, neg_hashtag_vec],
+                                          n_steps=self.hashtag.shape[0])
+        cost = numpy.log(1. / (1. + numpy.exp(-t_pred))).mean() + numpy.log(1. / (1. + numpy.exp(n_pred))).sum(
+            axis=1).mean()
+        cost = -cost
+        cost.name = 'cost'
+        pred = tensor.concatenate([t_pred[:, None], n_pred], axis=1)
+        max_index = pred.argmax(axis=1)
+        error_rate = tensor.neq(0, max_index).mean()
+        error_rate.name = 'error_rate'
+        cost_drop, error_rate_drop = self._apply_dropout([cost, error_rate])
+        self.monitor_train_vars = [[cost_drop], [error_rate_drop]]
+        self._get_test_cost(input_vec)
+        self._get_valid_cost(input_vec)
+        self._get_extra_measure(input_vec)
+        self.cg_generator = cost_drop
 
     def _apply_dropout(self, outputs, *args, **kwargs):
         variables = [self.word_embed.W, self.hashtag_embed.W]
@@ -479,26 +628,160 @@ class NegAttentionEUTHM(AttentionEUTHM):
         max_index = pred.argmax(axis=1)
         error_rate = tensor.neq(0, max_index).mean()
         error_rate.name = 'error_rate'
-        self.monitor_train_vars = [[cost],[error_rate]]
-        monitor_valid_vars = self._get_test_cost(input_vec)
-        self.monitor_valid_vars = [[var] for var in monitor_valid_vars]
-        self.cg_generator = cost
-        self.stop_monitor_var = monitor_valid_vars[0]
+        cost_drop, error_rate_drop = self._apply_dropout([cost, error_rate])
+        self.monitor_train_vars = [[cost_drop], [error_rate_drop]]
+        self._get_test_cost(input_vec)
+        self._get_valid_cost(input_vec)
+        self._get_extra_measure(input_vec)
+        self.cg_generator = cost_drop
 
 
-class TUTHM(UTHM):
+class AttentionEUTHM2(EUTHM):
+    def __init__(self, config, dataset, *args, **kwargs):
+        super(EUTHM, self).__init__(config, dataset)
+
+    def _build_model(self, *args, **kwargs):
+        # Define inputs
+        self._define_inputs()
+        self._build_bricks()
+        self._set_OV_value()
+        # Transpose text
+        self.text = self.text.dimshuffle(1, 0)
+        self.text_mask = self.text_mask.dimshuffle(1, 0)
+        self.sparse_word = self.sparse_word.dimshuffle(1, 0)
+        self.sparse_word_mask = self.sparse_word_mask.dimshuffle(1, 0)
+        # Turn word, user and hashtag into vector representation
+        text_vec = self.word_embed.apply(self.text)
+        user_vec = self.user_embed.apply(self.user)
+        # Apply user word, hashtag word and sparse word
+        text_vec = self._apply_user_word(text_vec)
+        text_vec = self._apply_hashtag_word(text_vec)
+        text_vec = self._apply_sparse_word(text_vec)
+        # Add user attention
+        text_vec = tensor.concatenate([text_vec, user_vec[None,:,:][tensor.zeros(shape=(text_vec.shape[0],), dtype='int32')]], axis=2)
+        text_vec = self.word_shift.apply(text_vec) + \
+                        self.word_shift_bias.parameters[0][0]
+
+        # Encode text
+        mlstm_hidden, mlstm_cell = self.mlstm.apply(inputs=self.mlstm_ins.apply(text_vec),
+                                                    mask=self.text_mask.astype(theano.config.floatX))
+        text_encodes = mlstm_hidden[-1]
+        input_vec = tensor.concatenate([text_encodes, user_vec], axis=1)
+        self._get_cost(input_vec, None, None)
+
+    def _build_bricks(self, *args, **kwargs):
+        super(AttentionEUTHM2, self)._build_bricks()
+        self.word_shift = MLP(activations=[Tanh('word_shift_tanh')],
+                              dims=[self.config.user_embed_dim+self.config.word_embed_dim, self.config.word_embed_dim],
+                              name='word_shift_mlp')
+        self.word_shift.weights_init = IsotropicGaussian(std = 1/numpy.sqrt(self.config.word_embed_dim+self.config.user_embed_dim))
+        self.word_shift.biases_init = Constant(0)
+        self.word_shift.initialize()
+        self.word_shift_bias = Bias(dim=1, name='word_shift_bias')
+        self.word_shift_bias.biases_init = Constant(0)
+        self.word_shift_bias.initialize()
+
+
+class NegAttentionEUTHM2(AttentionEUTHM2):
+    def __init__(self, config, dataset, *args, **kwargs):
+        '''
+        Define User-text-hashtag model with negtive sampling
+        :param config:
+        :param dataset: User-text-hashtag dataset
+        '''
+        super(NegAttentionEUTHM2, self).__init__(config, dataset)
+
+    def _build_model(self, *args, **kwargs):
+        # Define inputs
+        self._define_inputs()
+        self._build_bricks()
+        self._set_OV_value()
+        # Transpose text
+        self.text = self.text.dimshuffle(1, 0)
+        self.text_mask = self.text_mask.dimshuffle(1, 0)
+        self.sparse_word = self.sparse_word.dimshuffle(1, 0)
+        self.sparse_word_mask = self.sparse_word_mask.dimshuffle(1, 0)
+        # Turn word, user and hashtag into vector representation
+        text_vec = self.word_embed.apply(self.text)
+        user_vec = self.user_embed.apply(self.user)
+        true_hashtag_vec = self.hashtag_embed.apply(self.hashtag)
+        neg_hashtag_vec = self.hashtag_embed.apply(self.neg_hashtag)
+        # Apply user word, hashtag word and sparse word
+        text_vec = self._apply_user_word(text_vec)
+        text_vec = self._apply_hashtag_word(text_vec)
+        text_vec = self._apply_sparse_word(text_vec)
+        # Add user attention
+        text_vec = tensor.concatenate([text_vec, user_vec[None,:,:][tensor.zeros(shape=(text_vec.shape[0],), dtype='int32')]], axis=2)
+        text_vec = self.word_shift.apply(text_vec) + \
+                        self.word_shift_bias.parameters[0][0]
+        # Encode text
+        mlstm_hidden, mlstm_cell = self.mlstm.apply(inputs=self.mlstm_ins.apply(text_vec),
+                                                    mask=self.text_mask.astype(theano.config.floatX))
+        text_encodes = mlstm_hidden[-1]
+        input_vec = tensor.concatenate([text_encodes, user_vec], axis=1)
+        self._get_cost(input_vec, true_hashtag_vec, neg_hashtag_vec)
+
+    def _define_inputs(self, *args, **kwargs):
+        super(NegAttentionEUTHM2, self)._define_inputs()
+        self.neg_hashtag = tensor.imatrix('hashtag_negtive_sample')
+
+    def _get_cost(self, input_vec, *args, **kwargs):
+        def get_cost(enc, th, nh):
+            '''
+            :param enc: text encoding
+            :param th: true hashtag
+            :param nh: negtive hashtags
+            :return:
+            '''
+            # return tensor.dot(enc, th), tensor.dot(nh,enc)
+            return enc.dot(th), nh.dot(enc)
+
+        true_hashtag_vec = args[0]
+        neg_hashtag_vec = args[1]
+        (t_pred, n_pred), _ = theano.scan(get_cost,
+                                          sequences=[input_vec, true_hashtag_vec, neg_hashtag_vec],
+                                          n_steps=self.hashtag.shape[0])
+        cost = numpy.log(1. / (1. + numpy.exp(-t_pred))).mean() + numpy.log(1. / (1. + numpy.exp(n_pred))).sum(
+            axis=1).mean()
+        cost = -cost
+        cost.name = 'cost'
+        pred = tensor.concatenate([t_pred[:, None], n_pred], axis=1)
+        max_index = pred.argmax(axis=1)
+        error_rate = tensor.neq(0, max_index).mean()
+        error_rate.name = 'error_rate'
+        cost_drop, error_rate_drop = self._apply_dropout([cost, error_rate])
+        self.monitor_train_vars = [[cost_drop], [error_rate_drop]]
+        self._get_test_cost(input_vec)
+        self._get_valid_cost(input_vec)
+        self._get_extra_measure(input_vec)
+        self.cg_generator = cost_drop
+
+
+class ComAttentionEUTHM(NegAttentionEUTHM):
     def __init__(self, config, dataset):
-        super(TUTHM, self).__init__(config, dataset)
+        super(ComAttentionEUTHM, self).__init__(config, dataset)
 
-    def _get_cost(self, input_vec, true_hashtag_vec, neg_hashtag_vec, *args, **kwargs):
-        rank = min(len(self.dataset.hashtag2index), 10)
-        preds = tensor.argsort(tensor.dot(input_vec, self.hashtag_embed.W.T), axis=1)[:, ::-1]
-        top1_accuracy = tensor.eq(self.hashtag, preds[:, 0]).mean()
-        top10_accuracy = tensor.sum(tensor.eq(preds[:, 0:rank], self.hashtag[:, None]), axis=1).mean()
+    def _get_cost(self, input_vec, *args, **kwargs):
+        super(ComAttentionEUTHM, self)._get_cost(input_vec, *args, **kwargs)
+        self.neg_cost = self.cg_generator
+        self.neg_cost.name = "neg_cost"
+        self.neg_monitor_train_vars = [[self.neg_cost]]
+        self._get_full_cost(input_vec)
 
+    def _get_full_cost(self, input_vec, *args, **kwargs):
+        preds = self._get_pred_dist(input_vec)
+        cost = Softmax().categorical_cross_entropy(self.hashtag, preds).mean()
+        max_index = preds.argmax(axis=1)
+        cost.name = 'full_cost'
+        ranks = tensor.argsort(preds, axis=1)[:, ::-1]
+        top1_accuracy = tensor.eq(self.hashtag, ranks[:, 0]).mean()
+        top10_accuracy = tensor.sum(tensor.eq(ranks[:, 0:self.rank], self.hashtag[:, None]), axis=1).mean()
         top1_accuracy.name = "top1_accuracy"
         top10_accuracy.name = "top10_accuracy"
-        self.top1_accuracy = top1_accuracy
-        self.top10_accuracy = top10_accuracy
-        self.monitor_vars = [[top1_accuracy], [top10_accuracy]]
-        self.cg_generator = top1_accuracy
+        cost_drop, top1_accuracy_drop, top10_accuracy_drop = self._apply_dropout([cost, top1_accuracy, top10_accuracy])
+        cost_drop.name = cost.name
+        top1_accuracy_drop.name = top1_accuracy.name
+        top10_accuracy_drop.name = top10_accuracy.name
+        self.full_monitor_train_vars = [[cost_drop], [top1_accuracy_drop], [top10_accuracy_drop]]
+        self.full_cost = cost_drop
+

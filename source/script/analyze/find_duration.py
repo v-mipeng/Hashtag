@@ -89,29 +89,32 @@ def get_kl_distances(config):
 if __name__ == "__main__":
     config = UTHC()
     print(config.project_dir)
-    config.train_path = os.path.join(config.project_dir, 'data/tweet/first_11_days.pkl')
+    config.train_path = os.path.join(config.project_dir, 'data/tweet/train.pkl')
     AKLs, KLs, CRs, ACRs = get_kl_distances(config)
     akls = np.array(AKLs.values())
     best_duration = akls.argmin()
-    result_path = os.path.join(config.project_dir, 'output/analysis/kl.txt')
+    result_path = os.path.join(config.project_dir, 'output/analysis/kl.pkl')
     with open(result_path, "w+") as writer:
-        writer.write("Average KL\n")
-        writer.write("{0:10}{1:5}\n".format("duration","AKL"))
-        for duration, akl in AKLs.iteritems():
-            writer.write("{0:2d}\t{1:.4f}\n".format(duration,akl))
+        # writer.write("Average KL\n")
+        # writer.write("{0:10}{1:5}\n".format("duration","AKL"))
+        # for duration, akl in AKLs.iteritems():
+        #     writer.write("{0:2d}\t{1:.4f}\n".format(duration,akl))
+        #
+        # writer.write("KL by day\n")
+        # writer.write("{0:10}\n".format("duration"))
+        # writer.write("KL by day:\n")
+        # for duration, _ in KLs.iteritems():
+        #     writer.write("{0}\n".format("\t".join(["{0:.4f}".format(kl) for kl in KLs[duration]])))
+        #
+        # writer.write("Average CR:\n")
+        # writer.write("{0:10}{1:5}\n".format("duration","ACR"))
+        # for duration, acr in ACRs.iteritems():
+        #     writer.write("{0:2d}\t{1:.4f}\n".format(duration, acr))
+        #
+        # writer.write("CR by day\n")
+        # writer.write("{0:10}\n".format("duration"))
+        # for duration, _ in CRs.iteritems():
+        #     writer.write("{0}\n".format("\t".join(["{0:.4f}".format(cr) for cr in CRs[duration]])))
+        dic = OrderedDict(zip(('AKLs','KLs','ACRs','CRs'),(AKLs,KLs,ACRs,CRs)))
+        cPickle.dump(dic,writer)
 
-        writer.write("KL by day\n")
-        writer.write("{0:10}\n".format("duration"))
-        writer.write("KL by day:\n")
-        for duration, _ in KLs.iteritems():
-            writer.write("{0}\n".format("\t".join(["{0:.4f}".format(kl) for kl in KLs[duration]])))
-
-        writer.write("Average CR:\n")
-        writer.write("{0:10}{1:5}\n".format("duration","ACR"))
-        for duration, acr in ACRs.iteritems():
-            writer.write("{0:2d}\t{1:.4f}\n".format(duration, acr))
-
-        writer.write("CR by day\n")
-        writer.write("{0:10}\n".format("duration"))
-        for duration, _ in CRs.iteritems():
-            writer.write("{0}\n".format("\t".join(["{0:.4f}".format(cr) for cr in CRs[duration]])))

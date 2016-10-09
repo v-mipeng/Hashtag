@@ -1,4 +1,4 @@
-from blocks.algorithms import BasicMomentum, AdaDelta, RMSProp, Adam, CompositeRule, StepClipping, Momentum, Scale
+from blocks.algorithms import BasicMomentum, AdaDelta, AdaGrad, RMSProp, Adam, CompositeRule, StepClipping, Momentum, Scale
 import os
 import datetime
 from model import *
@@ -23,13 +23,13 @@ class BasicConfig:
     sort_batch_count = 20
 
     # Step rule
-    step_rule = AdaDelta()
+    step_rule = AdaGrad()
 
     # Measured by batches, e.g, valid every 1000 batches
-    print_freq = 10
+    print_freq = 100
     save_freq = 1000
     # Measured by epoch
-    valid_freq = 0.5
+    valid_freq = 0.2
 
 
 class UTHC(BasicConfig):
@@ -81,8 +81,10 @@ class UTHC(BasicConfig):
     # tolerate time for validation
     tolerate_time = 5
 
+
     # percent of validation dataset
     valid_percent = 0.2
+
 
     # valid on 0.1* size of validation dataset
     sample_percent_for_test = 1.
@@ -98,7 +100,7 @@ class UTHC(BasicConfig):
 
     lstm_time = 1
 
-    dropout_prob = 0.2
+    dropout_prob = 0.
 
     # endregion
 
@@ -106,7 +108,7 @@ class UTHC(BasicConfig):
 class EUTHC(UTHC):
     Model = EUTHM
 
-    model_path = os.path.join(BasicConfig.project_dir, 'output/model/EUTH/EUTH.pkl')
+    model_path = os.path.join(BasicConfig.project_dir, 'output/model/REUTH/REUTH.pkl')
 
     user_name2id_path = os.path.join(BasicConfig.project_dir, "data/tweet/user_name2id.pkl")
 
@@ -114,54 +116,73 @@ class EUTHC(UTHC):
     char_embed_dim = 10
 
 
+class NegEUTHC(EUTHC):
+    Model = NegEUTHM
+
+    model_path = os.path.join(BasicConfig.project_dir, 'output/neg after full/REUTH/REUTH.pkl')
+
+
 class ETHC(EUTHC):
     Model = ETHM
 
-    model_path = os.path.join(BasicConfig.project_dir, 'output/model/ETH/ETH.pkl')
+    model_path = os.path.join(BasicConfig.project_dir, 'output/model/RETH/RETH.pkl')
+
+    # disable dropout
+    dropout_prob = 0.
 
 
 class AttentionEUTHC(EUTHC):
+    '''
+    concatenate user and word vector
+    '''
     Model = AttentionEUTHM
 
-    model_path = os.path.join(BasicConfig.project_dir, 'output/model/AEUTH/AEUTH.pkl')
+    model_path = os.path.join(BasicConfig.project_dir, 'output/model/RAEUTH/RAEUTH.pkl')
 
 
-class TimeLineAttentionEUTHC(EUTHC):
-    Model = AttentionEUTHM
-
-    model_path = os.path.join(BasicConfig.project_dir, 'output/model/TAEUTH/TAEUTH.pkl')
-
-    valid_freq = 0.5
-
-    sample_percent_for_test = 0.5
-
-    tolerate_time = 5
-
-    max_epoch = 20
-
-    dropout_prob = 0.2
-
-    l2_norm = 0.05
-
-    T = 30
-
-
-class NegTimeLineAttentionEUTHC(TimeLineAttentionEUTHC):
+class NegAttentionEUTHC(AttentionEUTHC):
     Model = NegAttentionEUTHM
 
-    model_path = os.path.join(BasicConfig.project_dir, 'output/model/NTAEUTH/NTAEUTH.pkl')
-
-    neg_sample_size = 10
-
-    valid_freq = 0.5
-
-    sample_percent_for_test = 0.5
-
-    tolerate_time = 20
+    model_path = os.path.join(BasicConfig.project_dir, 'output/neg after full/RAEUTH/RAEUTH.pkl')
 
 
-class TUTHC(UTHC):
-    Model = TUTHM
+class AttentionEUTHC2(AttentionEUTHC):
+    '''
+    Add author attention before lstm
+    '''
+    Model = AttentionEUTHM2
+
+    model_path = os.path.join(BasicConfig.project_dir, 'output/models/AEUTH2/AEUTH2.pkl')
+
+
+class ComETHC(ETHC):
+    model_path = os.path.join(BasicConfig.project_dir, 'output/sig vs com/RCETH/RCETH.pkl')
+
+    train_path = os.path.join(BasicConfig.project_dir, "data/tweet/first_11_days.pkl")
+
+    T = 10
+
+    neg_epoch = 20
+
+
+class ComEUTHC(EUTHC):
+    model_path = os.path.join(BasicConfig.project_dir, 'output/sig vs com/RCEUTH/RCEUTH.pkl')
+
+    train_path = os.path.join(BasicConfig.project_dir, "data/tweet/first_11_days.pkl")
+
+    T = 10
+
+    neg_epoch = 20
+
+
+class ComAttentionEUTHC(AttentionEUTHC):
+    train_path = os.path.join(BasicConfig.project_dir, "data/tweet/first_11_days.pkl")
+
+    model_path = os.path.join(BasicConfig.project_dir, 'output/sig vs com/RCAEUTH/RCAEUTH.pkl')
+
+    T = 10
+
+    neg_epoch = 20
 
 
 #region Developing

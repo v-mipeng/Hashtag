@@ -1069,6 +1069,106 @@ class ETHD(EUTHD):
         return word2freq
 
 
+class NegETHD(ETHD):
+    def __init__(self, config):
+        super(NegETHD, self).__init__(config)
+
+    def _update_after_transform(self, dataset, for_type='train'):
+        if for_type == 'train':
+            hashtags = dataset[-1]
+            self.hashtag_distribution = self._get_hashtag_distribution(hashtags)
+        else:
+            pass
+        return dataset
+
+    def _get_hashtag_distribution(self, hashtags):
+        id, count = numpy.unique(numpy.array(hashtags), return_counts=True)
+        count = count ** (3.0 / 4)
+        return (id, count)
+
+    def _construct_shuffled_stream(self, dataset):
+        '''
+        Construc a shuffled stream from given dataset
+        :param dataset: fuel Indexable dataset
+        :return: A fuel shuffled stream with basic transformations:
+        1.Sort data by self.compare_source
+        2.Batch dataset
+        3.Add mask on self.need_mask_sources
+        '''
+        stream = super(NegETHD, self)._construct_shuffled_stream(dataset)
+        sample_from = [self.hashtag_distribution]
+        sample_sources = ['hashtag']
+        sample_sizes = [self.config.hashtag_sample_size]
+        stream = NegativeSample(stream, sample_from, sample_sources, sample_sizes)
+        return stream
+
+    def _construct_sequencial_stream(self, dataset):
+        '''
+        Construc a sequencial stream from given dataset
+        :param dataset: fuel Indexable dataset
+        :return: A fuel sequencial stream with basic transformations:
+        1.Sort data by self.compare_source
+        2.Batch dataset
+        3.Add mask on self.need_mask_sources
+        '''
+        stream = super(NegETHD, self)._construct_shuffled_stream(dataset)
+        sample_from = [self.hashtag_distribution]
+        sample_sources = ['hashtag']
+        sample_sizes = [self.config.hashtag_sample_size]
+        stream = NegativeSample(stream, sample_from, sample_sources, sample_sizes)
+        return stream
+
+
+class NegEUTHD(EUTHD):
+    def __init__(self, config):
+        super(NegEUTHD, self).__init__(config)
+
+    def _update_after_transform(self, dataset, for_type='train'):
+        if for_type == 'train':
+            hashtags = dataset[-1]
+            self.hashtag_distribution = self._get_hashtag_distribution(hashtags)
+        else:
+            pass
+        return dataset
+
+    def _get_hashtag_distribution(self, hashtags):
+        id, count = numpy.unique(numpy.array(hashtags), return_counts=True)
+        count = count ** (3.0 / 4)
+        return (id, count)
+
+    def _construct_shuffled_stream(self, dataset):
+        '''
+        Construc a shuffled stream from given dataset
+        :param dataset: fuel Indexable dataset
+        :return: A fuel shuffled stream with basic transformations:
+        1.Sort data by self.compare_source
+        2.Batch dataset
+        3.Add mask on self.need_mask_sources
+        '''
+        stream = super(NegEUTHD, self)._construct_shuffled_stream(dataset)
+        sample_from = [self.hashtag_distribution]
+        sample_sources = ['hashtag']
+        sample_sizes = [self.config.hashtag_sample_size]
+        stream = NegativeSample(stream, sample_from, sample_sources, sample_sizes)
+        return stream
+
+    def _construct_sequencial_stream(self, dataset):
+        '''
+        Construc a sequencial stream from given dataset
+        :param dataset: fuel Indexable dataset
+        :return: A fuel sequencial stream with basic transformations:
+        1.Sort data by self.compare_source
+        2.Batch dataset
+        3.Add mask on self.need_mask_sources
+        '''
+        stream = super(NegEUTHD, self)._construct_shuffled_stream(dataset)
+        sample_from = [self.hashtag_distribution]
+        sample_sources = ['hashtag']
+        sample_sizes = [self.config.hashtag_sample_size]
+        stream = NegativeSample(stream, sample_from, sample_sources, sample_sizes)
+        return stream
+
+
 class TimeLineEUTHD(EUTHD):
     '''
     Dataset for training day by day
@@ -1221,6 +1321,7 @@ class FDUTHD(object):
         self.user2dic = {} # user-->{hashtag index-->freq}
         self.hashtag_index2freq = None # ndarray
         self.alpha = 0.1
+        self.hashtag_coverage = 1.
 
     def set_alpha(self, alpha):
         self.alpha = alpha
@@ -1246,6 +1347,15 @@ class FDUTHD(object):
         top1_accuracy = 1.0*top1_accuracy/len(users)
         top10_accuracy = 1.0*top10_accuracy/len(users)
         return top1_accuracy,top10_accuracy
+
+    def _get_hashtag_coverage(self, hashtags):
+        tmp = 0
+        for hashtag in hashtags:
+            if hashtag in self.hashtag2index:
+                tmp+=1
+            else:
+                pass
+        self.hashtag_coverage = 1.0*tmp/len(self.hashtag2index)
 
     def single_test(self, user, hashtag):
         if hashtag not in self.hashtag2index:
@@ -1296,8 +1406,8 @@ class FDUTHD(object):
         return order_id
 
     def _get_value(self, f_u_h):
-        value =  f_u_h*self.hashtag_index2freq
-        # value =  (1-self.alpha)*f_u_h/f_u_h.sum()+self.alpha*self.hashtag_index2freq/self.hashtag_index2freq.sum()
+        # value =  f_u_h*self.hashtag_index2freq
+        value =  (1-self.alpha)*f_u_h/f_u_h.sum()+self.alpha*self.hashtag_index2freq/self.hashtag_index2freq.sum()
         return value
 
     def _get_hashtag2index(self, hashtags):
