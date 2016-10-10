@@ -396,7 +396,9 @@ class RUTHD(object):
 
     def get_dataset(self, data_path=None, reference_date="LAST_DAY", date_offset=0, duration=3):
         '''
-        Return dataset within given days
+        Return dataset within given days:
+        (first_day+date_offset-duration, first_day+date_offset] if reference_date = "LAST_DAY"
+        (last_day-date_offset-duration, last_day-date_offset] otherwise
         :param data_path:
         :param reference_date:
         :param date_offset:
@@ -425,7 +427,7 @@ class RUTHD(object):
 
     def _find_data_by_date(self, date_begin, date_end):
         '''
-        Find samples posted during (data_begin,data_end)
+        Find samples posted during (data_begin,data_end]
         :param date_begin:
         :param date_end:
         :return: [[field1_line1,field2_line2..],[field1_line2,...]...] format dataset for given date
@@ -739,9 +741,12 @@ class UTHD(BUTHD):
 
 class EUTHD(UTHD):
     '''
+    Extended user-textual-hashtag dataset
     To Deal with OV:
     1. when OV input occurs, force it to be zeros, i.e., make it not sense, and get output with left information
+       (for character)
     2. train a OV input, i.e., select some inputs of training samples and treat it as OV input, train this representation.
+       (for sparse author and hashtag)
     '''
 
     def __init__(self, config):
@@ -758,12 +763,12 @@ class EUTHD(UTHD):
     def _initialize(self):
         with open(self.config.user_name2id_path, 'rb') as f:
             self.user_name2id = cPickle.load(f)
-        dataset_prarms = super(EUTHD, self)._initialize()
+        dataset_params = super(EUTHD, self)._initialize()
         if os.path.exists(self.config.model_path):
-            self.char2index = dataset_prarms['char2index']
-            return dataset_prarms
+            self.char2index = dataset_params['char2index']
+            return dataset_params
         else:
-            self.word2index = {}
+            self.word2index = {} # Without sparse word
             self.char2index = {'<unk>': 0}
             return None
 
@@ -1120,6 +1125,9 @@ class NegETHD(ETHD):
 
 
 class NegEUTHD(EUTHD):
+    '''
+    Extended user-textual-hashtag dataset with negative sampled hashtags
+    '''
     def __init__(self, config):
         super(NegEUTHD, self).__init__(config)
 
@@ -1162,150 +1170,6 @@ class NegEUTHD(EUTHD):
         3.Add mask on self.need_mask_sources
         '''
         stream = super(NegEUTHD, self)._construct_shuffled_stream(dataset)
-        sample_from = [self.hashtag_distribution]
-        sample_sources = ['hashtag']
-        sample_sizes = [self.config.hashtag_sample_size]
-        stream = NegativeSample(stream, sample_from, sample_sources, sample_sizes)
-        return stream
-
-
-class TimeLineEUTHD(EUTHD):
-    '''
-    Dataset for training day by day
-    '''
-
-    def __init__(self, config):
-        super(TimeLineEUTHD, self).__init__(config)
-
-    # def _initialize(self):
-    #     dataset_prarms = super(TimeLineEUTHD, self)._initialize()
-    #     if os.path.exists(self.config.model_path):
-    #         self.hashtag2date = dataset_prarms['hashtag2date']
-    #         return dataset_prarms
-    #     else:
-    #         self.hashtag2date = {}
-    #         return None
-    #
-    # def get_parameter_to_save(self):
-    #     '''
-    #     Return parameters that need to be saved with model
-    #     :return: OrderedDict
-    #     '''
-    #     dic = super(TimeLineEUTHD, self).get_parameter_to_save()
-    #     dic['hashtag2date'] = self.hashtag2date
-    #     return dic
-    #
-    # def _update_before_transform(self, raw_dataset, for_type='train'):
-    #     '''
-    #
-    #     :param raw_dataset: The dataset of current day
-    #     :param for_type:
-    #     :return:
-    #     '''
-    #     raw_dataset = super(TimeLineEUTHD, self)._update_before_transform(raw_dataset, for_type)
-    #     if for_type == 'train':
-    #         fields = zip(*raw_dataset)
-    #         dates = fields[self.config.date_index]
-    #         assert (numpy.array(dates) != dates[0]).sum() == 0
-    #         current_date = fields[self.config.date_index][0]
-    #         expire_date = current_date - datetime.timedelta(days=self.config.time_window)
-    #         hashtags = fields[self.config.hashtag_index]
-    #         for hashtag in hashtags:
-    #             self.hashtag2date[hashtag] = current_date
-    #         for hashtag, date in self.hashtag2date.items():
-    #             if date <= expire_date:
-    #                 self.hashtag2index.pop(hashtag, None)
-    #                 self.hashtag2date.pop(hashtag, None)
-    #             else:
-    #                 pass
-    #         self.hashtag_coverage = 1.
-    #     else:
-    #         pass
-    #     return raw_dataset
-
-
-class NegTimeLineEUTHD(TimeLineEUTHD):
-    def __init__(self, config):
-        super(NegTimeLineEUTHD, self).__init__(config)
-
-    def _initialize(self):
-        dataset_prarms = super(NegTimeLineEUTHD, self)._initialize()
-        if os.path.exists(self.config.model_path):
-            self.date2hashtag_freq = dataset_prarms['date2hashtag_freq']
-            self.hashtag_distribution = self._get_hashtag_distribution()
-            return dataset_prarms
-        else:
-            self.date2hashtag_freq = {}
-            return None
-
-    def get_parameter_to_save(self):
-        dic = super(NegTimeLineEUTHD, self).get_parameter_to_save()
-        dic['date2hashtag_freq'] = self.date2hashtag_freq
-        return dic
-
-    def _update_before_transform(self, raw_dataset, for_type='train'):
-        raw_dataset = super(NegTimeLineEUTHD, self)._update_before_transform(raw_dataset, for_type)
-        if for_type == 'train':
-            fields = zip(*raw_dataset)
-            current_date = fields[self.config.date_index][0]
-            expire_date = current_date - datetime.timedelta(days=self.config.time_window)
-            for date, _dic in self.date2hashtag_freq.items():
-                if date <= expire_date:
-                    self.date2hashtag_freq.pop(date)
-                else:
-                    pass
-            self.date2hashtag_freq[current_date] = self.hashtag2freq
-        else:
-            pass
-        return raw_dataset
-
-    def _update_after_transform(self, dataset, for_type='train'):
-        if for_type == 'train':
-            self.hashtag_distribution = self._get_hashtag_distribution()
-        else:
-            pass
-        return dataset
-
-    def _get_hashtag_distribution(self):
-        _dic = {}
-        for date, hashtag2freq in self.date2hashtag_freq.iteritems():
-            for hashtag, freq in hashtag2freq.iteritems():
-                id = self.hashtag2index.get(hashtag)
-                if id is not None:
-                    if id in _dic:
-                        _dic[id] += freq
-                    else:
-                        _dic[id] = freq
-        id, count = zip(*_dic.items())
-        count = numpy.array(count) ** (3.0 / 4)
-        return (numpy.array(id, dtype='int32'), count)
-
-    def _construct_shuffled_stream(self, dataset):
-        '''
-        Construc a shuffled stream from given dataset
-        :param dataset: fuel Indexable dataset
-        :return: A fuel shuffled stream with basic transformations:
-        1.Sort data by self.compare_source
-        2.Batch dataset
-        3.Add mask on self.need_mask_sources
-        '''
-        stream = super(NegTimeLineEUTHD, self)._construct_shuffled_stream(dataset)
-        sample_from = [self.hashtag_distribution]
-        sample_sources = ['hashtag']
-        sample_sizes = [self.config.hashtag_sample_size]
-        stream = NegativeSample(stream, sample_from, sample_sources, sample_sizes)
-        return stream
-
-    def _construct_sequencial_stream(self, dataset):
-        '''
-        Construc a sequencial stream from given dataset
-        :param dataset: fuel Indexable dataset
-        :return: A fuel sequencial stream with basic transformations:
-        1.Sort data by self.compare_source
-        2.Batch dataset
-        3.Add mask on self.need_mask_sources
-        '''
-        stream = super(NegTimeLineEUTHD, self)._construct_shuffled_stream(dataset)
         sample_from = [self.hashtag_distribution]
         sample_sources = ['hashtag']
         sample_sizes = [self.config.hashtag_sample_size]

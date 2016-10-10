@@ -2,6 +2,8 @@ from blocks.algorithms import BasicMomentum, AdaDelta, AdaGrad, RMSProp, Adam, C
 import os
 import datetime
 from model import *
+from dataset import *
+from util.entrance import *
 
 
 class BasicConfig:
@@ -36,6 +38,10 @@ class UTHC(BasicConfig):
 
     Model = UTHM
 
+    Dataset = UTHD
+
+    model_save_loader = BasicSaveLoadParams
+
     model_path = os.path.join(BasicConfig.project_dir, "output/model/UTH/UTH.pkl")
 
     # If is directory, read all the files with extension ".txt"
@@ -67,6 +73,10 @@ class UTHC(BasicConfig):
     #TODO: adjust sparse_word_percent
     sparse_word_percent = 0.05
     sparse_user_percent = 0.005
+    sparse_hashtag_freq = 10
+    sparse_user_freq = 10
+    sparse_word_freq = 10
+    # This will reduce hashtag number thus accelerating training and prediction
     sparse_hashtag_percent = 0.005
 
 
@@ -108,6 +118,10 @@ class UTHC(BasicConfig):
 class EUTHC(UTHC):
     Model = EUTHM
 
+    Dataset = EUTHD
+
+    model_save_loader = ExtendSaveLoadParams
+
     model_path = os.path.join(BasicConfig.project_dir, 'output/model/REUTH/REUTH.pkl')
 
     user_name2id_path = os.path.join(BasicConfig.project_dir, "data/tweet/user_name2id.pkl")
@@ -119,11 +133,17 @@ class EUTHC(UTHC):
 class NegEUTHC(EUTHC):
     Model = NegEUTHM
 
+    Dataset = NegEUTHD
+
     model_path = os.path.join(BasicConfig.project_dir, 'output/neg after full/REUTH/REUTH.pkl')
 
 
 class ETHC(EUTHC):
     Model = ETHM
+
+    Dataset = ETHD
+
+    model_save_loader = ETHSaveLoadParams
 
     model_path = os.path.join(BasicConfig.project_dir, 'output/model/RETH/RETH.pkl')
 
@@ -184,29 +204,3 @@ class ComAttentionEUTHC(AttentionEUTHC):
 
     neg_epoch = 20
 
-
-#region Developing
-class UGC(BasicConfig):
-    '''
-    User graph config
-    '''
-
-    # directory storing the users' id2index files
-    user_id2index_dir = ""
-
-    # directory storing the user graph files
-    user_graph_dir = ""
-
-    # negtive sampling size for training user graph.
-    # reference: Mikolov, Tomas, et al. "Distributed representations of words and phrases and their compositionality."?Advances in neural information processing systems. 2013.
-    user_sample_size = 5
-
-    date = datetime.date(year=2015, month=10, day=23)
-
-    user_hashtag_time_span = 3
-
-    # path to store the model trained on user graph
-    user_graph_model_path = ""
-
-    hashtag_embed_dim = 100
-#endregion
