@@ -255,7 +255,8 @@ class EUTHM(UTHM):
 
     def _set_OV_value(self, *args, **kwargs):
         '''Train a <unk> representation'''
-        self.char_embed[self.dataset.char2index['<unk>']] = 0
+        tensor.set_subtensor(self.char_embed.W[self.dataset.char2index['<unk>']],
+                             numpy.zeros(self.config.char_embed_dim, dtype=theano.config.floatX))
 
     def _get_text_vec(self, *args, **kwargs):
         # Transpose text

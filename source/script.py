@@ -112,16 +112,16 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 # Do remotely
-config = UTHC
-config.train_path = os.path.join(BasicConfig.project_dir, "data/tweet/first_11_days.pkl")
+config = EUTHC
+config.train_path = os.path.join(BasicConfig.project_dir, "data/tweet/first_31_days.pkl")
 raw_dataset = RUTHD(config)
 raw_dataset.prepare()
-dataset = UTHD(config)
+dataset = EUTHD(config)
 config.T = 30
 data = raw_dataset.get_dataset(reference_date='FIRST_DAY', date_offset=config.T-1, duration=config.T)
 dataset._update_before_transform(data)
 
-with open('statistic_30.pkl', 'wb+') as f:
+with open('statistic_10.pkl', 'wb+') as f:
     cPickle.dump(dataset.user2freq, f)
     cPickle.dump(dataset.hashtag2freq, f)
     cPickle.dump(dataset.word2freq, f)
@@ -158,4 +158,20 @@ plt.ylabel('percent of word')
 plt.title('Percent of Word by Occurrence')
 plt.show()
 
+#endregion
+
+#region Turn words into lowercase
+for file in files:
+    with open(file, 'rb') as f:
+        dataset = cPickle.load(f)
+    for item in dataset:
+        new_text = []
+        for word in item[config.text_index]:
+            if word.startswith('#') or word.startswith('@'):
+                new_text.append(word)
+            else:
+                new_text.append(word.lower())
+        item[config.text_index] = new_text
+    with open(file, 'wb+') as f:
+        cPickle.dump(dataset, f)
 #endregion

@@ -135,7 +135,7 @@ class SparseIndex(Transformer):
                 if len(tmp) > 0:
                     mask = numpy.ones(len(tmp), dtype=theano.config.floatX)
                 else:
-                    tmp = numpy.array([0], dtype=source_batch.dtype)
+                    tmp = numpy.array([0], dtype='int32') #TDDO: check here
                     mask = numpy.zeros(1, dtype=theano.config.floatX)
                 new_batch.append(tmp)
                 new_batch.append(mask)

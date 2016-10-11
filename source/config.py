@@ -25,7 +25,7 @@ class BasicConfig:
     sort_batch_count = 20
 
     # Step rule
-    step_rule = AdaGrad()
+    step_rule = AdaDelta()
 
     # Measured by batches, e.g, valid every 1000 batches
     print_freq = 100
@@ -48,13 +48,8 @@ class UTHC(BasicConfig):
     train_path = os.path.join(BasicConfig.project_dir, "data/tweet/first_11_days.pkl")
     # train_path = os.path.join(BasicConfig.project_dir, "data/unit test/posts.pkl")
 
-    test_path = os.path.join(BasicConfig.project_dir, "data/test/")
-
-    test_result_path = os.path.join(BasicConfig.project_dir, "output/test/")
-
-    predict_path = os.path.join(BasicConfig.project_dir, "data/predict/")
-
-    predict_result_path = os.path.join(BasicConfig.project_dir, "data/predict/")
+    # path to store the test result. File format: true  hashtag TAB  "the first 1000 possible predicted hashtags"
+    test_result_path = os.path.join(BasicConfig.project_dir, "output/result/hashtag recommendation.txt")
 
     # delimiter of line storing a post information
     delimiter = "\t"
@@ -69,41 +64,34 @@ class UTHC(BasicConfig):
 
     date_index = 3
 
-    #sparse word threshold
-    #TODO: adjust sparse_word_percent
-    sparse_word_percent = 0.05
-    sparse_user_percent = 0.005
+    # define spare hashtag, user and word
     sparse_hashtag_freq = 10
     sparse_user_freq = 10
     sparse_word_freq = 10
-    # This will reduce hashtag number thus accelerating training and prediction
-    sparse_hashtag_percent = 0.005
-
 
     # begin date
     begin_date = None
-
-    time_window = 10
 
     # day offset to do prediction
     T = 10
 
     # tolerate time for validation
-    tolerate_time = 5
+    tolerate_time = 10
 
-
-    # percent of validation dataset
+    # percentage of validation set among all the training data set
     valid_percent = 0.2
 
-
-    # valid on 0.1* size of validation dataset
+    # do validation on sample_percent_for_test*sizeof(validataion data set) validation data set
     sample_percent_for_test = 1.
 
     # region Model control parameters
+    alpha = 0.001
+
     user_embed_dim = 50
 
     word_embed_dim = 100
 
+    # negative sampling size of hashtag
     hashtag_sample_size = 10
 
     lstm_dim = 100
@@ -120,14 +108,18 @@ class EUTHC(UTHC):
 
     Dataset = EUTHD
 
-    model_save_loader = ExtendSaveLoadParams
+    model_save_loader = ExtendSaveLoadParams # save or load extra character embedding
 
-    model_path = os.path.join(BasicConfig.project_dir, 'output/model/REUTH/REUTH.pkl')
+    model_path = os.path.join(BasicConfig.project_dir, 'output/model/EUTH/EUTH.pkl')
 
     user_name2id_path = os.path.join(BasicConfig.project_dir, "data/tweet/user_name2id.pkl")
 
+    #region Model control parameters
+
     # character embedding dimention
     char_embed_dim = 10
+
+    #endregion
 
 
 class NegEUTHC(EUTHC):
@@ -135,7 +127,7 @@ class NegEUTHC(EUTHC):
 
     Dataset = NegEUTHD
 
-    model_path = os.path.join(BasicConfig.project_dir, 'output/neg after full/REUTH/REUTH.pkl')
+    model_path = os.path.join(BasicConfig.project_dir, 'output/model/REUTH/REUTH.pkl')
 
 
 class ETHC(EUTHC):

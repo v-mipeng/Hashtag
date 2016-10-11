@@ -26,9 +26,10 @@ def tmp():
 
 
 if __name__ ==  "__main__":
-    config = ComETHC
+    config = EUTHC
+    # Fields need to reset
     config.T = 10
     config.train_path = os.path.join(config.project_dir, "data/tweet/first_11_days.pkl")
-    config.model_path = os.path.join(config.project_dir, "output/sig vs com/RCETH/RCETH.pkl")
+    config.model_path = os.path.join(config.project_dir, "output/model/EUTHC/EUTHC.pkl")
     entrance = BaseEntrance(config)
     entrance.train()
